@@ -1,0 +1,9 @@
+openrouter.api.key=YOUR_OPENROUTER_API_KEY
+hub.api.key=YOUR_HUB_KEY
+
+
+# Where per-lesson prompts and task parameters live. Outside the repo on purpose —
+# they describe the course exercise, not the framework. One directory per lesson:
+#   {labs.lessons.dir}/s01e01/system.md
+#   {labs.lessons.dir}/s01e01/task.properties
+labs.lessons.dir=C:/path/to/your/lesson-inputs
