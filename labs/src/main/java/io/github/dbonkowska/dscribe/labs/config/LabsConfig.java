@@ -10,12 +10,15 @@ import java.util.Properties;
 /**
  * @param lessonsDir where per-lesson prompts and task parameters live. Kept outside the
  *                   repository — those describe the course exercise, not the framework.
+ * @param dataDir    where a lesson's runtime files live: what it downloaded, what it produced.
+ *                   Inside the repository but ignored by git.
  */
-public record LabsConfig(Llm llm, Hub hub, Path lessonsDir) {
+public record LabsConfig(Llm llm, Hub hub, Path lessonsDir, Path dataDir) {
 
     private static final String DEFAULT_MODEL = "qwen/qwen3.5-9b";
     private static final String DEFAULT_LLM_BASE_URL = "https://openrouter.ai/api/v1";
     private static final String DEFAULT_HUB_BASE_URL = "https://hub.ag3nts.org";
+    private static final String DEFAULT_DATA_DIR = "labs/data";
 
     public record Llm(String apiKey, String model, String baseUrl) implements LlmConfig {}
 
@@ -44,7 +47,15 @@ public record LabsConfig(Llm llm, Hub hub, Path lessonsDir) {
                 orDefault(props, "hub.verify", hubBaseUrl + "/verify")
         );
 
-        return new LabsConfig(llm, hub, Path.of(require(props, "labs.lessons.dir")));
+        return new LabsConfig(llm, hub, Path.of(require(props, "labs.lessons.dir")), dataDir(props));
+    }
+
+    /**
+     * Absolutised, so it no longer matters which directory the process was launched from — the
+     * relative path this replaces only resolved from the repository root.
+     */
+    static Path dataDir(Properties props) {
+        return Path.of(orDefault(props, "labs.data.dir", DEFAULT_DATA_DIR)).toAbsolutePath().normalize();
     }
 
     /** -Dopenrouter.model wins, then OPENROUTER_MODEL, then application.properties, then the default. */

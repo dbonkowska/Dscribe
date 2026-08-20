@@ -13,7 +13,7 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.util.List;
 
-public class LlmClient {
+public class LlmClient implements ChatTransport {
 
     private static final String CHAT_COMPLETIONS = "/chat/completions";
 
@@ -25,19 +25,26 @@ public class LlmClient {
 
     private final LlmConfig config;
     private final String model;
+    private final Transcript transcript;
 
     public LlmClient(LlmConfig config){
-        this(config, config.model());
+        this(config, config.model(), Transcript.NONE);
     }
 
-    private LlmClient(LlmConfig config, String model){
+    private LlmClient(LlmConfig config, String model, Transcript transcript){
         this.config = config;
         this.model = model;
+        this.transcript = transcript;
     }
 
     /** A copy of this client talking to a different model. Handy for comparing models in one run. */
     public LlmClient withModel(String model){
-        return new LlmClient(config, model);
+        return new LlmClient(config, model, transcript);
+    }
+
+    /** A copy of this client recording every exchange it makes. */
+    public LlmClient withTranscript(Transcript transcript){
+        return new LlmClient(config, model, transcript);
     }
 
     public String model(){
@@ -53,6 +60,11 @@ public class LlmClient {
         return MAPPER.readValue(content, type);
     }
 
+    @Override
+    public ChatResponse.Choice send(List<Message> messages, List<ToolSpec> tools, String toolChoice) {
+        return firstChoice(exchange(new ChatRequest(model, messages, null, tools, toolChoice)));
+    }
+
     private ChatResponse exchange(ChatRequest requestBody) {
         try {
             String json = MAPPER.writeValueAsString(requestBody);
@@ -65,6 +77,9 @@ public class LlmClient {
                     .build();
 
             HttpResponse<String> response = HTTP.send(request, HttpResponse.BodyHandlers.ofString());
+
+            // recorded before the status check: a 429 is exactly the exchange worth keeping
+            transcript.append(json, response.body());
 
             if (response.statusCode() != 200) {
                 throw new RuntimeException("API error [" + response.statusCode() + "]: " + response.body());

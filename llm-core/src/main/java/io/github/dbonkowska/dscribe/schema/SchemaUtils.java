@@ -1,4 +1,4 @@
-package io.github.dbonkowska.dscribe.labs.util;
+package io.github.dbonkowska.dscribe.schema;
 
 import com.github.victools.jsonschema.generator.Option;
 import com.github.victools.jsonschema.generator.OptionPreset;
