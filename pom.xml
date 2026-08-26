@@ -19,6 +19,22 @@
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     </properties>
 
-
+    <build>
+        <pluginManagement>
+            <plugins>
+                <!--
+                    Pinned because the version is otherwise inherited from whichever Maven
+                    distribution runs the build — 3.9.14 binds 3.5.4 — so upgrading Maven
+                    would change the test runner without a diff. Version lives here, not in
+                    the modules.
+                -->
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-surefire-plugin</artifactId>
+                    <version>3.5.5</version>
+                </plugin>
+            </plugins>
+        </pluginManagement>
+    </build>
 
 </project>

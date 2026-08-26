@@ -38,15 +38,17 @@
             <artifactId>jackson-dataformat-properties</artifactId>
             <version>3.2.0</version>
         </dependency>
+
+        <!--
+            The SLF4J provider. Being the application, labs is what decides where llm-core's
+            events go; runtime scope keeps the provider off the compile classpath so nothing
+            can import it by mistake. Without a provider, SLF4J discards every event and warns.
+        -->
         <dependency>
-            <groupId>com.github.victools</groupId>
-            <artifactId>jsonschema-generator</artifactId>
-            <version>5.0.0</version>
-        </dependency>
-        <dependency>
-            <groupId>com.github.victools</groupId>
-            <artifactId>jsonschema-module-jackson</artifactId>
-            <version>5.0.0</version>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-simple</artifactId>
+            <version>2.0.17</version>
+            <scope>runtime</scope>
         </dependency>
 
         <!--

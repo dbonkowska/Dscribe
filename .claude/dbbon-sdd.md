@@ -33,9 +33,12 @@ Maven 3.9.14. Before that this repo had no wrapper at all (`.mvn/` was an empty
 directory), and the only working invocation was the full path into the wrapper dist,
 which contained a hash directory that breaks whenever the dist re-downloads.
 
-**`test_single` needs `-Dsurefire.failIfNoSpecifiedTests=false`.** `llm-core` has no tests,
-so a `-Dtest=` filter matches nothing there and surefire aborts the whole reactor before
-`labs` runs. The prefix matters — bare `-DfailIfNoSpecifiedTests` is silently ignored.
+**`test_single` needs `-Dsurefire.failIfNoSpecifiedTests=false`.** Surefire fails a module
+when the *pattern* matches nothing there — not when the module has no tests — and it checks
+every module in the reactor. A test class lives in one module, so the other always matches
+zero and aborts the build. This does not stop being true as modules gain tests: both have
+them now and the flag is as load-bearing as it ever was. The prefix matters — bare
+`-DfailIfNoSpecifiedTests` is silently ignored.
 
 **Before running `labs`**, `llm-core` must be installed — `mvn -pl labs` resolves it from
 `~/.m2`, not the reactor, so a stale jar is used otherwise. Use `-am`, or install first.

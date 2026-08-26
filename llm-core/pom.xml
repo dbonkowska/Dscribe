@@ -25,6 +25,44 @@
             <version>3.2.0</version>
             <scope>compile</scope>
         </dependency>
+        <!--
+            Generates a JSON schema from a Java class. The jackson module makes the
+            generator honour @JsonValue / @JsonProperty, so a record's wire shape and its
+            schema cannot drift apart.
+        -->
+        <dependency>
+            <groupId>com.github.victools</groupId>
+            <artifactId>jsonschema-generator</artifactId>
+            <version>5.0.0</version>
+        </dependency>
+        <dependency>
+            <groupId>com.github.victools</groupId>
+            <artifactId>jsonschema-module-jackson</artifactId>
+            <version>5.0.0</version>
+        </dependency>
+
+        <!--
+            Logging API only — the application picks the provider. Declared rather than taken
+            transitively from victools: at depth 1 it wins mediation, so a victools upgrade can
+            no longer change the version this module compiles against.
+        -->
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-api</artifactId>
+            <version>2.0.17</version>
+        </dependency>
+
+        <!--
+            JUnit 5. The aggregate artifact: pulls in junit-jupiter-api (annotations and
+            assertions), junit-jupiter-params (@ParameterizedTest) and junit-jupiter-engine
+            (the runtime Surefire discovers tests with). One entry is enough.
+        -->
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <version>6.1.2</version>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 
 </project>

@@ -1,6 +1,8 @@
 package io.github.dbonkowska.dscribe.llm;
 
-public record ResponseFormat(String type, Schema json_schema) {
+import com.fasterxml.jackson.annotation.JsonProperty;
+
+public record ResponseFormat(String type, @JsonProperty("json_schema") Schema jsonSchema) {
 
     public record Schema(String name, boolean strict, Object schema) {}
 

@@ -29,7 +29,8 @@ class LessonTest {
         return new LabsConfig(
                 new LabsConfig.Llm("k", "m", "https://llm.test"),
                 new LabsConfig.Hub("k", "https://hub.test", "https://hub.test/verify"),
-                lessonsDir);
+                lessonsDir,
+                lessonsDir.resolve("data"));
     }
 
     private static Path lesson(Path root, String id) throws IOException {

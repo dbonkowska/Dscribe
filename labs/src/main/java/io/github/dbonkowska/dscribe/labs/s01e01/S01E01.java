@@ -3,11 +3,13 @@ package io.github.dbonkowska.dscribe.labs.s01e01;
 import io.github.dbonkowska.dscribe.conversation.Message;
 import io.github.dbonkowska.dscribe.conversation.Role;
 import io.github.dbonkowska.dscribe.labs.config.LabsConfig;
+import io.github.dbonkowska.dscribe.labs.data.Artifacts;
+import io.github.dbonkowska.dscribe.labs.data.RunTranscript;
 import io.github.dbonkowska.dscribe.labs.hub.HubClient;
 import io.github.dbonkowska.dscribe.labs.lesson.Lesson;
-import io.github.dbonkowska.dscribe.labs.util.SchemaUtils;
 import io.github.dbonkowska.dscribe.llm.LlmClient;
 import io.github.dbonkowska.dscribe.llm.ResponseFormat;
+import io.github.dbonkowska.dscribe.schema.SchemaUtils;
 import org.apache.commons.csv.CSVFormat;
 import org.apache.commons.csv.CSVRecord;
 import tools.jackson.databind.node.ArrayNode;
@@ -19,12 +21,28 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
 public class S01E01 {
+
+    /**
+     * The model this lesson's flag was earned on. Pinned because it is the only committed record
+     * of that: the transcript header names the model per run, but {@code labs/data} is gitignored,
+     * so nothing in version control would otherwise say which model solved this.
+     *
+     * <p>Free tier, and it was enough — one-shot structured output against a strict schema asks
+     * far less of a model than the tool chain in s01e02, which had to escalate off the free tier
+     * to finish at all.
+     *
+     * <p>A preference, not the last word — {@code -Dopenrouter.model}, {@code OPENROUTER_MODEL}
+     * and {@code openrouter.model} each still win over it, which is what makes trying another one
+     * a flag rather than an edit.
+     */
+    private static final String MODEL = "google/gemma-4-26b-a4b-it:free";
 
     /** Where the generated schema keeps the per-tag constraint. */
     private static final String TAG_ITEMS = "/properties/results/items/properties/tags/items";
@@ -33,39 +51,62 @@ public class S01E01 {
 
     public static void main(String[] args) throws IOException {
         LabsConfig labsConfig = LabsConfig.load();
-        HubClient hub = new HubClient(labsConfig.hub());
-        LlmClient llm = new LlmClient(labsConfig.llm()).withModel("google/gemma-4-26b-a4b-it:free");
+        LlmClient llm = new LlmClient(labsConfig.llm()).defaultModel(MODEL);
 
-        Lesson lesson = Lesson.of(labsConfig, "s01e01");
-        TaskParams task = lesson.task(TaskParams.class);
+        Map<String, String> settings = new LinkedHashMap<>();
+        settings.put("model", llm.model());
+        settings.put("llm base url", labsConfig.llm().baseUrl());
+        settings.put("hub base url", labsConfig.hub().baseUrl());
 
-        Path data = hub.fetchFromHub("s01e01", task.dataFile());
+        try (RunTranscript transcript = RunTranscript.open(
+                labsConfig.dataDir().resolve("logs"),
+                "s01e01",
+                settings,
+                List.of(labsConfig.llm().apiKey(), labsConfig.hub().apiKey()))) {
 
-        List<Row> candidates = parseCsv(data).stream()
-                .filter(row -> matchesHardCriteria(row, task))
-                .toList();
+            HubClient hub = new HubClient(labsConfig.hub(), transcript);
+            LlmClient recorded = llm.withTranscript(transcript);
 
-        System.out.println("Model: " + llm.model());
-        System.out.println("Candidates after CSV filtering: " + candidates.size());
+            Lesson lesson = Lesson.of(labsConfig, "s01e01");
+            TaskParams task = lesson.task(TaskParams.class);
 
-        Map<Integer, List<String>> tagsById = classify(llm, candidates, task, lesson.prompt("system.md"));
+            Artifacts artifacts = Artifacts.of(labsConfig.dataDir(), "s01e01");
+            Path data = hub.fetchData(task.dataFile(), artifacts.file(task.dataFile()));
 
-        List<Person> answer = new ArrayList<>();
-        for (int id = 0; id < candidates.size(); id++) {
-            List<String> tags = tagsById.get(id);
-            if (tags == null) {
-                System.out.println("WARN: model returned no entry for id " + id);
-                continue;
+            List<Row> candidates = parseCsv(data).stream()
+                    .filter(row -> matchesHardCriteria(row, task))
+                    .toList();
+
+            System.out.println("Model: " + llm.model());
+            System.out.println("Candidates after CSV filtering: " + candidates.size());
+
+            Map<Integer, List<String>> tagsById =
+                    classify(recorded, candidates, task, lesson.prompt("system.md"));
+
+            List<Person> answer = new ArrayList<>();
+            for (int id = 0; id < candidates.size(); id++) {
+                List<String> tags = tagsById.get(id);
+                if (tags == null) {
+                    System.out.println("WARN: model returned no entry for id " + id);
+                    continue;
+                }
+                if (tags.contains(task.selectTag())) {
+                    answer.add(candidates.get(id).person().withTags(tags));
+                }
             }
-            if (tags.contains(task.selectTag())) {
-                answer.add(candidates.get(id).person().withTags(tags));
-            }
+
+            System.out.println("Selected: " + answer.size());
+            answer.forEach(p -> System.out.println("  " + p.name() + " " + p.surname() + " " + p.tags()));
+
+            // the next lesson consumes this; a runner that only prints its answer loses it
+            artifacts.write("answer.json", answer);
+
+            String verified = hub.verify(task.verifyTask(), answer);
+            transcript.outcome("Submitted " + answer.size() + " people.\n\n`/verify` → " + verified);
+
+            System.out.println(verified);
+            System.out.println("Transcript: " + transcript.file());
         }
-
-        System.out.println("Selected: " + answer.size());
-        answer.forEach(p -> System.out.println("  " + p.name() + " " + p.surname() + " " + p.tags()));
-
-        System.out.println(hub.verify(task.verifyTask(), answer));
     }
 
     static boolean matchesHardCriteria(Row row, TaskParams task) {

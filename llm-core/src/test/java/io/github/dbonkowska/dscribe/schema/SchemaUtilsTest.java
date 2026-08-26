@@ -1,4 +1,4 @@
-package io.github.dbonkowska.dscribe.labs.util;
+package io.github.dbonkowska.dscribe.schema;
 
 import com.fasterxml.jackson.annotation.JsonValue;
 import org.junit.jupiter.api.Test;
