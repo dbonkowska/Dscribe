@@ -54,15 +54,25 @@ public class HubClient {
             HttpResponse<byte[]> response = http.send(request, HttpResponse.BodyHandlers.ofByteArray());
 
             if (response.statusCode() != 200) {
-                throw new RuntimeException("Fetch failed [" + response.statusCode() + "]: " + url);
+                throw new RuntimeException(
+                        "Fetch failed [" + response.statusCode() + "]: " + redacted(url));
             }
 
             Files.createDirectories(localPath.getParent());
             Files.write(localPath, response.body());
             return localPath;
         } catch (InterruptedException | IOException e) {
-            throw new RuntimeException(e);
+            throw new RuntimeException("Fetch failed: " + redacted(url), e);
         }
+    }
+
+    /**
+     * The data URL carries the API key in its path, and an exception message travels wherever its
+     * stack trace does — a console, a CI log, a pasted snippet. {@link RunTranscript} redacts
+     * everything it writes; nothing was doing the same for what this throws.
+     */
+    private String redacted(String url) {
+        return url.replace(hubApiKey, "***");
     }
 
     /**

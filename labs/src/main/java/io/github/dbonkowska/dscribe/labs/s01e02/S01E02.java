@@ -30,10 +30,17 @@ import java.util.stream.Collectors;
 public class S01E02 {
 
     /**
-     * Pinned so a re-run reproduces this lesson rather than following whatever
-     * {@code application.properties} happens to say. It also beats {@code -Dopenrouter.model} —
-     * {@code withModel} is applied after the config resolves — so comparing models means
-     * changing this line.
+     * The model this lesson's flag was earned on. Pinned because it is the only committed record
+     * of that: the transcript header names the model per run, but {@code labs/data} is gitignored,
+     * so nothing in version control would otherwise say which model solved this.
+     *
+     * <p>It took getting to. Eight runs on the repo's old default were rejected, two on
+     * {@code google/gemini-3.7-flash} likewise; this one has been right every time. A twelve-step
+     * tool chain turns out to be the wrong job for a small model.
+     *
+     * <p>A preference, not the last word — {@code -Dopenrouter.model}, {@code OPENROUTER_MODEL}
+     * and {@code openrouter.model} each still win over it, which is what makes trying another one
+     * a flag rather than an edit.
      */
     private static final String MODEL = "openai/gpt-5.6-luna";
 
@@ -47,7 +54,7 @@ public class S01E02 {
 
     public static void main(String[] args) throws IOException {
         LabsConfig labsConfig = LabsConfig.load();
-        LlmClient llm = new LlmClient(labsConfig.llm()).withModel(MODEL);
+        LlmClient llm = new LlmClient(labsConfig.llm()).defaultModel(MODEL);
 
         Map<String, String> settings = new LinkedHashMap<>();
         settings.put("model", llm.model());
@@ -78,14 +85,16 @@ public class S01E02 {
                     hubTool(hub, task.sightings(), SightingQuery.class),
                     hubTool(hub, task.accessLevel(), AccessQuery.class)));
 
-            List<String> codes = plantCodes(artifacts.read(task.dataFile(), JsonNode.class));
+            List<String> vocabulary =
+                    vocabulary(artifacts.read(task.dataFile(), JsonNode.class), task.answerVocabulary());
 
             AnswerTool<Answer> answerTool = new AnswerTool<>(
-                    task.answer().name(), task.answer().description(), Answer.class, answerSchema(codes));
+                    task.answer().name(), task.answer().description(), Answer.class,
+                    answerSchema(vocabulary));
 
             System.out.println("Model: " + llm.model());
             System.out.println("Suspects: " + suspects.size());
-            System.out.println("Plant codes offered: " + codes.size());
+            System.out.println("Answer vocabulary: " + vocabulary.size());
 
             List<Message> seed = List.of(
                     new Message(Role.system, lesson.prompt("system.md")),
@@ -107,22 +116,23 @@ public class S01E02 {
     }
 
     /**
-     * The generated schema types {@code powerPlant} as a plain string, which lets the model answer
-     * with a plant's name — the hub rejects that outright. Narrowing it to the codes the hub's own
-     * file lists makes a wrong shape unrepresentable rather than merely discouraged. Same move as
-     * s01e01's tag vocabulary, and the vocabulary again comes from data rather than from source.
+     * The generator types {@code powerPlant} as a plain string, which leaves the model free to
+     * answer with something the hub rejects outright. Narrowing it to the values the hub's own
+     * data file lists makes a wrong one unrepresentable rather than merely discouraged. Same move
+     * as s01e01's, and the vocabulary again comes from data rather than from source.
      */
-    private static ObjectNode answerSchema(List<String> codes) {
+    private static ObjectNode answerSchema(List<String> vocabulary) {
         ObjectNode schema = SchemaUtils.from(Answer.class);
         ArrayNode allowed = SchemaUtils.at(schema, "/properties/powerPlant").putArray("enum");
-        codes.forEach(allowed::add);
+        vocabulary.forEach(allowed::add);
         return schema;
     }
 
-    private static List<String> plantCodes(JsonNode file) {
-        List<String> codes = new ArrayList<>();
-        file.at("/power_plants").forEach(plant -> codes.add(plant.get("code").stringValue()));
-        return codes;
+    /** Where to look is the bundle's to say: the file is the exercise's, and so is its shape. */
+    private static List<String> vocabulary(JsonNode file, TaskParams.Vocabulary where) {
+        List<String> values = new ArrayList<>();
+        file.at(where.pointer()).forEach(entry -> values.add(entry.get(where.key()).stringValue()));
+        return values;
     }
 
     /** Every tool here does the same thing: POST the arguments the model produced to a hub path. */

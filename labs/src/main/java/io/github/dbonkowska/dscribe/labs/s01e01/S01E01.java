@@ -29,6 +29,21 @@ import java.util.stream.IntStream;
 
 public class S01E01 {
 
+    /**
+     * The model this lesson's flag was earned on. Pinned because it is the only committed record
+     * of that: the transcript header names the model per run, but {@code labs/data} is gitignored,
+     * so nothing in version control would otherwise say which model solved this.
+     *
+     * <p>Free tier, and it was enough — one-shot structured output against a strict schema asks
+     * far less of a model than the tool chain in s01e02, which had to escalate off the free tier
+     * to finish at all.
+     *
+     * <p>A preference, not the last word — {@code -Dopenrouter.model}, {@code OPENROUTER_MODEL}
+     * and {@code openrouter.model} each still win over it, which is what makes trying another one
+     * a flag rather than an edit.
+     */
+    private static final String MODEL = "google/gemma-4-26b-a4b-it:free";
+
     /** Where the generated schema keeps the per-tag constraint. */
     private static final String TAG_ITEMS = "/properties/results/items/properties/tags/items";
 
@@ -36,7 +51,7 @@ public class S01E01 {
 
     public static void main(String[] args) throws IOException {
         LabsConfig labsConfig = LabsConfig.load();
-        LlmClient llm = new LlmClient(labsConfig.llm()).withModel("google/gemma-4-26b-a4b-it:free");
+        LlmClient llm = new LlmClient(labsConfig.llm()).defaultModel(MODEL);
 
         Map<String, String> settings = new LinkedHashMap<>();
         settings.put("model", llm.model());

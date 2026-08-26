@@ -18,7 +18,8 @@ import java.nio.file.Path;
  *
  * <pre>
  * {lessons.dir}/s01e01/
- *     system.md         prompt template
+ *     system.md         system prompt
+ *     user.md           user prompt, where the lesson has one
  *     task.properties   parameters bound to a record
  * </pre>
  */

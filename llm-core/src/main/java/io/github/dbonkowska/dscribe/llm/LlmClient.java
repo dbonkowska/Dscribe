@@ -37,9 +37,17 @@ public class LlmClient implements ChatTransport {
         this.transcript = transcript;
     }
 
-    /** A copy of this client talking to a different model. Handy for comparing models in one run. */
-    public LlmClient withModel(String model){
-        return new LlmClient(config, model, transcript);
+    /**
+     * A copy of this client talking to {@code model} — unless the configuration named one, which
+     * wins. The caller states a preference; whether it has the final say is decided here and
+     * nowhere else, so a caller cannot drop the override by forgetting to consult it.
+     *
+     * <p>Whatever {@link LlmConfig#model()} resolves from — a command-line flag, an environment
+     * variable, a properties file — has already been decided by the time it arrives, and a blank
+     * one counts as absent.
+     */
+    public LlmClient defaultModel(String model){
+        return new LlmClient(config, named(config.model()) ? config.model() : model, transcript);
     }
 
     /** A copy of this client recording every exchange it makes. */
@@ -65,7 +73,18 @@ public class LlmClient implements ChatTransport {
         return firstChoice(exchange(new ChatRequest(model, messages, null, tools, toolChoice)));
     }
 
+    private static boolean named(String model) {
+        return model != null && !model.isBlank();
+    }
+
     private ChatResponse exchange(ChatRequest requestBody) {
+        if (!named(model)) {
+            // nothing here invents a model: a request that names none is answered by the provider
+            // with an error a long way from the config key that caused it
+            throw new IllegalStateException(
+                    "No model to call: the configuration names none and no default was given. "
+                            + "Set one in LlmConfig, or call defaultModel(...).");
+        }
         try {
             String json = MAPPER.writeValueAsString(requestBody);
 

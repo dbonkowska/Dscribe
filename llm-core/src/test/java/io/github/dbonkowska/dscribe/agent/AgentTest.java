@@ -165,6 +165,55 @@ class AgentTest {
         assertEquals(whole, Agent.oneLine(whole));
     }
 
+    @Test
+    void refusesAnAnswerToolNamedAfterARegisteredTool() {
+        // both names come from the same properties file; a collision would otherwise reach the
+        // request as two functions of one name, and the answer branch would win every call
+        AnswerTool<Answer> clashing =
+                new AnswerTool<>("lookup", "reports the final verdict", Answer.class);
+        ScriptedTransport transport = new ScriptedTransport();
+
+        IllegalArgumentException thrown = assertThrows(
+                IllegalArgumentException.class, () -> agent(transport, 12).run(SEED, clashing));
+
+        assertTrue(thrown.getMessage().contains("lookup"), thrown::getMessage);
+        assertEquals(0, transport.calls(), "nothing is spent on a run that cannot answer");
+    }
+
+    @Test
+    void sendsAMalformedAnswerBackToTheModelRatherThanThrowing() {
+        ScriptedTransport transport = new ScriptedTransport(
+                toolCalls(call("call_1", "answer", "{\"verdict\":")),
+                toolCalls(call("call_2", "answer", ANSWER_ARGUMENTS)));
+
+        assertEquals(new Answer("guilty"), agent(transport, 12).run(SEED, ANSWER));
+
+        Message refusal = transport.request(1).getLast();
+        assertEquals(Role.tool, refusal.role());
+        assertEquals("call_1", refusal.toolCallId());
+        assertTrue(refusal.content().contains("answer"), refusal::content);
+    }
+
+    @Test
+    void answersEveryCallOfATurnWhoseAnswerWasMalformed() {
+        // a good answer ends the run, so the rest of its turn needs no results. A refused one does
+        // not — and a tool call left unanswered makes the next request invalid at the provider.
+        ScriptedTransport transport = new ScriptedTransport(
+                toolCalls(
+                        call("call_1", "lookup", "{\"query\":\"x\"}"),
+                        call("call_2", "answer", "not json")),
+                toolCalls(call("call_3", "answer", ANSWER_ARGUMENTS)));
+
+        assertEquals(new Answer("guilty"), agent(transport, 12).run(SEED, ANSWER));
+
+        List<String> answered = transport.request(1).stream()
+                .filter(message -> message.role() == Role.tool)
+                .map(Message::toolCallId)
+                .toList();
+        assertEquals(List.of("call_1", "call_2"), answered);
+        assertEquals(List.of("x"), dispatched, "the turn is dispatched, not skipped");
+    }
+
     private Agent agent(ChatTransport transport, int maxIterations) {
         Tool<Lookup> lookup = new Tool<>("lookup", "finds things", Lookup.class, args -> {
             dispatched.add(args.query());

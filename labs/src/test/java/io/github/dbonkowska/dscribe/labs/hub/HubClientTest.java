@@ -13,37 +13,47 @@ import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * A file already on disk is never fetched again. Every re-run of a lesson leans on that — the
- * download is the slow, rate-limited part — and it fails silently by simply working while
- * costing a request each time.
+ * Two things fail silently here. A file already on disk is never fetched again — every re-run of
+ * a lesson leans on that, the download being the slow, rate-limited part, and a regression shows
+ * up only as requests quietly costing money. And the URL {@code fetchData} builds carries the API
+ * key in its path, so anything that prints it leaks the key.
  *
- * <p>The URL below is unroutable on purpose: if the cache check ever regresses, this test fails
- * by trying to reach it rather than by quietly passing.
+ * <p>The base URL is unroutable on purpose: a test that reached the network would pass or fail on
+ * the hub's mood. The cached case fails by trying to reach it; the uncached case is meant to.
  */
 class HubClientTest {
 
-    private static final String UNREACHABLE = "http://127.0.0.1:1/would-fail";
+    private static final String UNREACHABLE = "http://127.0.0.1:1";
+    private static final String KEY = "hub-key-fixture";
 
     @Test
     void servesAFileThatIsAlreadyOnDiskWithoutFetchingIt(@TempDir Path root) throws IOException {
         Path cached = Files.writeString(root.resolve("a.json"), "{}", StandardCharsets.UTF_8);
 
-        assertEquals(cached, hub(root).fetch(UNREACHABLE, cached));
+        assertEquals(cached, hub(root).fetch(UNREACHABLE + "/would-fail", cached));
     }
 
     @Test
-    void writesLessonDataWhereverTheCallerAsksFor(@TempDir Path root) throws IOException {
-        // the destination is the caller's to choose; only the hub URL, key included, stays here
-        Path destination = Files.writeString(root.resolve("a.json"), "{}", StandardCharsets.UTF_8);
+    void buildsTheKeyedDataUrlItselfAndKeepsTheKeyOutOfWhatItThrows(@TempDir Path root) {
+        // nothing at the destination, so the cache branch cannot answer for the URL this time.
+        // Where the file lands is the caller's decision; the key-bearing URL is built in here.
+        Path destination = root.resolve("nested").resolve("a.json");
 
-        assertEquals(destination, hub(root).fetchData("a.json", destination));
+        RuntimeException thrown =
+                assertThrows(RuntimeException.class, () -> hub(root).fetchData("a.json", destination));
+
+        assertTrue(thrown.getMessage().contains("/data/***/a.json"), thrown::getMessage);
+        assertFalse(thrown.getMessage().contains(KEY), thrown::getMessage);
     }
 
     private static HubClient hub(Path root) {
         return new HubClient(
-                new LabsConfig.Hub("k", "https://hub.test", "https://hub.test/verify"),
-                RunTranscript.open(root.resolve("logs"), "x01", Map.of(), List.of("k")));
+                new LabsConfig.Hub(KEY, UNREACHABLE, UNREACHABLE + "/verify"),
+                RunTranscript.open(root.resolve("logs"), "x01", Map.of(), List.of(KEY)));
     }
 }

@@ -194,6 +194,20 @@ class RunTranscriptTest {
     }
 
     @Test
+    void keepsAPayloadItCannotParseRatherThanThrowing() throws IOException {
+        // a provider that answers with an HTML error page, or half a body down a dropped
+        // connection, is exactly when the record matters most — and it is the moment the parser
+        // gives up. The skim line above is lost; the raw block below it must not be.
+        RunTranscript transcript = open(root());
+
+        transcript.append("<html>502 Bad Gateway</html>", "<html>502 Bad Gateway</html>");
+
+        String written = contents(transcript);
+        assertTrue(written.contains("<html>502 Bad Gateway</html>"), () -> written);
+        assertTrue(written.contains("## turn 1"), () -> written);
+    }
+
+    @Test
     void recordsTheHubCallAToolHandlerMade() throws IOException {
         RunTranscript transcript = RunTranscript.open(root(), "x01", SETTINGS, List.of("hub-k3y"));
 

@@ -20,7 +20,7 @@ import java.util.Map;
  * Throwing instead would end a run that was one retry from finishing; only the iteration cap
  * ends a run badly.
  */
-public class Toolbox {
+public final class Toolbox {
 
     private static final ObjectMapper MAPPER = JsonMapper.builder()
             .disable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)

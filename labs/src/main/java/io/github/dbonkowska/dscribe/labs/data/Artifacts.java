@@ -43,10 +43,6 @@ public record Artifacts(Path dir) {
         return dir.resolve(name);
     }
 
-    public boolean has(String name) {
-        return Files.exists(file(name));
-    }
-
     public <T> T read(String name, Class<T> type) {
         Path path = file(name);
         try (Reader reader = Files.newBufferedReader(path, StandardCharsets.UTF_8)) {

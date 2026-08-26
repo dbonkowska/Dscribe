@@ -14,7 +14,8 @@ answers — none of it belongs here, in any form.
 
 Those live in per-lesson bundles **outside** the repo, under `labs.lessons.dir` (set in
 `.claude/dbbon-sdd.md`). `Lesson.of(config, "s01e01")` resolves the folder; the runner
-reads `system.md` and binds `task.properties` to a record. It hardcodes neither.
+reads `system.md` (and `user.md`, where the lesson has one) and binds `task.properties` to a
+record. It hardcodes none of them.
 
 When a new lesson needs a prompt or a criterion, it goes in that lesson's bundle — **not**
 in a constant, not in a test fixture, not in a comment that restates the task. If you find
@@ -28,18 +29,21 @@ This rule has no exceptions and nothing softens it.
 Maven is not on PATH. Use the wrapper:
 
 ```bash
-./mvnw test                       # whole reactor
-./mvnw test -Dtest=AgentTest      # one class
-./mvnw -am -pl labs test          # labs only, building llm-core from source
+./mvnw test                                                          # whole reactor
+./mvnw test -Dtest=AgentTest -Dsurefire.failIfNoSpecifiedTests=false # one class
+./mvnw -am -pl labs test                                             # labs only, from source
 ```
 
 `-am` matters whenever you narrow to `-pl labs` — without it Maven resolves `llm-core` from
 `~/.m2` instead of the reactor, so you silently test against a stale jar.
 
-`-Dsurefire.failIfNoSpecifiedTests=false` used to be mandatory with `-Dtest=`, because
-`llm-core` had no tests and the filter aborted the reactor before `labs` ran. It has had tests
-since issue #2, so the flag is now optional. Note the `surefire.` prefix if you do pass it —
-bare `-DfailIfNoSpecifiedTests` is silently ignored.
+**`-Dsurefire.failIfNoSpecifiedTests=false` is mandatory with `-Dtest=`.** Surefire fails a
+module when the *pattern* matches nothing there — not when the module has no tests — and it
+checks every module in the reactor. A test class lives in one module, so the other one always
+matches zero and aborts the build: `-Dtest=AgentTest` gets through `llm-core` and dies on
+`labs`, `-Dtest=ArtifactsTest` dies on `llm-core` before `labs` is reached. Both modules having
+tests changed nothing. Note the `surefire.` prefix — bare `-DfailIfNoSpecifiedTests` is
+silently ignored.
 
 ### Running a lesson
 

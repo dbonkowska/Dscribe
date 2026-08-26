@@ -78,15 +78,6 @@ class ArtifactsTest {
     }
 
     @Test
-    void reportsWhetherAFileIsThereYet(@TempDir Path root) {
-        Artifacts artifacts = Artifacts.of(root, "x01");
-
-        assertFalse(artifacts.has("n.json"));
-        artifacts.write("n.json", new Note("a"));
-        assertTrue(artifacts.has("n.json"));
-    }
-
-    @Test
     void ignoresFieldsTheReadingLessonDoesNotDeclare(@TempDir Path root) throws IOException {
         // one lesson writes a rich record; the next reads only the fields it needs
         Artifacts artifacts = Artifacts.of(root, "x01");
