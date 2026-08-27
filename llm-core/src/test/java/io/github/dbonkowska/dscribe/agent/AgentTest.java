@@ -214,6 +214,82 @@ class AgentTest {
         assertEquals(List.of("x"), dispatched, "the turn is dispatched, not skipped");
     }
 
+    @Test
+    void untilNoToolCallsEndsOnTheFirstTurnThatAsksForNothing() {
+        ScriptedTransport transport = new ScriptedTransport(text("done"));
+
+        List<Message> conversation = agent(transport, 12).run(SEED, StopCondition.untilNoToolCalls());
+
+        assertEquals(SEED.getFirst(), conversation.getFirst(), "the seed opens the conversation");
+        Message last = conversation.getLast();
+        assertEquals(Role.assistant, last.role());
+        assertEquals("done", last.content());
+        assertEquals(1, transport.calls());
+        assertEquals(List.of(), dispatched);
+    }
+
+    @Test
+    void untilNoToolCallsDispatchesToolsUntilTheModelJustReplies() {
+        ScriptedTransport transport = new ScriptedTransport(
+                toolCalls(call("call_1", "lookup", "{\"query\":\"x\"}")),
+                text("done"));
+
+        List<Message> conversation = agent(transport, 12).run(SEED, StopCondition.untilNoToolCalls());
+
+        assertEquals(List.of("x"), dispatched);
+        assertEquals("done", conversation.getLast().content());
+        assertEquals(2, transport.calls());
+    }
+
+    @Test
+    void untilToolCalledStopsOnTheNamedCallWithoutDispatchingIt() {
+        // the caller reads the arguments off the turn; dispatching the tool would be a second,
+        // unasked-for effect on top of the one the condition exists to intercept
+        ScriptedTransport transport = new ScriptedTransport(
+                toolCalls(call("call_1", "lookup", "{\"query\":\"x\"}")));
+
+        List<Message> conversation =
+                agent(transport, 12).run(SEED, StopCondition.untilToolCalled("lookup"));
+
+        assertEquals(List.of(), dispatched);
+        assertEquals(1, transport.calls());
+        Message last = conversation.getLast();
+        assertEquals(Role.assistant, last.role());
+        assertEquals("lookup", last.toolCalls().getFirst().function().name());
+    }
+
+    @Test
+    void untilToolCalledNudgesATurnThatCalledNothing() {
+        ScriptedTransport transport = new ScriptedTransport(
+                text("thinking"),
+                toolCalls(call("call_1", "lookup", "{\"query\":\"x\"}")));
+
+        List<Message> conversation =
+                agent(transport, 12).run(SEED, StopCondition.untilToolCalled("lookup"));
+
+        Message nudge = transport.request(1).getLast();
+        assertEquals(Role.user, nudge.role());
+        assertEquals(2, transport.calls());
+        assertTrue(
+                conversation.getLast().hasToolCalls(),
+                () -> "the run ends on the lookup turn: " + conversation);
+    }
+
+    @Test
+    void givesUpAtTheCapWhateverEndsTheRun() {
+        ScriptedTransport transport = new ScriptedTransport(
+                toolCalls(call("call_1", "lookup", "{\"query\":\"a\"}")),
+                toolCalls(call("call_2", "lookup", "{\"query\":\"b\"}")),
+                toolCalls(call("call_3", "lookup", "{\"query\":\"c\"}")));
+
+        AgentLimitException thrown = assertThrows(
+                AgentLimitException.class,
+                () -> agent(transport, 3).run(SEED, StopCondition.untilToolCalled("never")));
+
+        assertEquals(3, thrown.iterations());
+        assertEquals(List.of("a", "b", "c"), dispatched);
+    }
+
     private Agent agent(ChatTransport transport, int maxIterations) {
         Tool<Lookup> lookup = new Tool<>("lookup", "finds things", Lookup.class, args -> {
             dispatched.add(args.query());

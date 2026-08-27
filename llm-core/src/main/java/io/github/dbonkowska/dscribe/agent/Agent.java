@@ -48,6 +48,57 @@ public final class Agent {
         this.maxIterations = maxIterations;
     }
 
+    /**
+     * Runs until {@code stop} accepts the turn that just arrived, and returns the whole
+     * conversation — seed, assistant turns, tool results and nudges, in order. The caller keeps
+     * that list and seeds the next run with it; nothing here is remembered between calls.
+     *
+     * <p>The terminal turn is appended and then left alone. A run stopped on a tool call has that
+     * call *un*dispatched on purpose — see {@link StopCondition#untilToolCalled}.
+     *
+     * <p>Deliberately a second loop rather than a generalisation of {@link #run(List, AnswerTool)}.
+     * Most of what separates the two is parameterisable — which specs go out, what the nudge says,
+     * what comes back. The malformed-answer retry is not. That one appends a refusal and keeps
+     * counting iterations, where anything built on top of this method could only retry by calling
+     * it again, restarting the cap: a model malforming its answer every turn would never reach
+     * {@link AgentLimitException}. The cap is what bounds the spend, so two loops is the cheaper
+     * trade. Revisit once the course stops handing the loop new shapes (issue #5).
+     */
+    public List<Message> run(List<Message> seed, StopCondition stop) {
+        List<ToolSpec> specs = tools.specs();
+        List<Message> messages = new ArrayList<>(seed);
+
+        for (int iteration = 1; iteration <= maxIterations; iteration++) {
+            Message turn = llm.send(messages, specs, "auto").message();
+            messages.add(turn);
+
+            if (stop.isTerminal(turn)) {
+                return messages;
+            }
+
+            if (!turn.hasToolCalls()) {
+                // the nudge costs an iteration, so it has to be visible while it happens
+                log.info("{}. no tool calls, nudging: {}", iteration, oneLine(turn.content()));
+                messages.add(new Message(
+                        Role.user, "Keep going by calling one of the tools you were given."));
+                continue;
+            }
+
+            for (ToolCall call : turn.toolCalls()) {
+                // logged before it runs, so a model spinning on identical calls is visible live
+                log.info("{}. {} {}", iteration, call.function().name(), call.function().arguments());
+
+                Message result = tools.invoke(call);
+
+                log.info("   -> {}", oneLine(result.content()));
+
+                messages.add(result);
+            }
+        }
+
+        throw new AgentLimitException(maxIterations, messages);
+    }
+
     public <T> T run(List<Message> seed, AnswerTool<T> answer) {
         List<ToolSpec> specs = specs(answer);
         List<Message> messages = new ArrayList<>(seed);
