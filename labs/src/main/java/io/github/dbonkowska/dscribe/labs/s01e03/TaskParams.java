@@ -11,16 +11,12 @@ package io.github.dbonkowska.dscribe.labs.s01e03;
  * happen, are the persona's business and live in {@code system.md} — a runner that knew them
  * would be doing the exercise on the model's behalf.
  *
- * @param verifyTask   the task name {@code /verify} expects. Declared but never called from the
- *                     runner: this lesson's flag arrives inside the conversation and is read out
- *                     of the transcript. It stays because {@link
- *                     io.github.dbonkowska.dscribe.labs.lesson.Lesson#task} rejects a properties
- *                     key its record has no component for, and dropping it would break the bind
- *                     rather than tidy anything.
+ * <p>No {@code verifyTask}: this lesson never calls {@code /verify}, so the bundle does not carry
+ * the key. Its flag arrives inside the conversation and is read out of the transcript.
+ *
  * @param packagesPath the endpoint under the hub's base URL that both tools POST to
  */
 public record TaskParams(
-        String verifyTask,
         String packagesPath,
         PackageTool check,
         PackageTool redirect

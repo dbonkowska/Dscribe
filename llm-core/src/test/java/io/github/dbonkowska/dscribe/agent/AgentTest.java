@@ -242,37 +242,19 @@ class AgentTest {
     }
 
     @Test
-    void untilToolCalledStopsOnTheNamedCallWithoutDispatchingIt() {
-        // the caller reads the arguments off the turn; dispatching the tool would be a second,
-        // unasked-for effect on top of the one the condition exists to intercept
-        ScriptedTransport transport = new ScriptedTransport(
-                toolCalls(call("call_1", "lookup", "{\"query\":\"x\"}")));
+    void nudgesATurnTheConditionDidNotAccept() {
+        // the loop takes any predicate, and one that does not stop on plain text leaves a turn
+        // with nothing to dispatch. Without the nudge the next request is the one that just came
+        // back, and the run spends its whole cap asking again.
+        StopCondition untilDone = turn -> "done".equals(turn.content());
+        ScriptedTransport transport = new ScriptedTransport(text("thinking"), text("done"));
 
-        List<Message> conversation =
-                agent(transport, 12).run(SEED, StopCondition.untilToolCalled("lookup"));
-
-        assertEquals(List.of(), dispatched);
-        assertEquals(1, transport.calls());
-        Message last = conversation.getLast();
-        assertEquals(Role.assistant, last.role());
-        assertEquals("lookup", last.toolCalls().getFirst().function().name());
-    }
-
-    @Test
-    void untilToolCalledNudgesATurnThatCalledNothing() {
-        ScriptedTransport transport = new ScriptedTransport(
-                text("thinking"),
-                toolCalls(call("call_1", "lookup", "{\"query\":\"x\"}")));
-
-        List<Message> conversation =
-                agent(transport, 12).run(SEED, StopCondition.untilToolCalled("lookup"));
+        List<Message> conversation = agent(transport, 12).run(SEED, untilDone);
 
         Message nudge = transport.request(1).getLast();
         assertEquals(Role.user, nudge.role());
         assertEquals(2, transport.calls());
-        assertTrue(
-                conversation.getLast().hasToolCalls(),
-                () -> "the run ends on the lookup turn: " + conversation);
+        assertEquals("done", conversation.getLast().content());
     }
 
     @Test
@@ -284,7 +266,7 @@ class AgentTest {
 
         AgentLimitException thrown = assertThrows(
                 AgentLimitException.class,
-                () -> agent(transport, 3).run(SEED, StopCondition.untilToolCalled("never")));
+                () -> agent(transport, 3).run(SEED, StopCondition.untilNoToolCalls()));
 
         assertEquals(3, thrown.iterations());
         assertEquals(List.of("a", "b", "c"), dispatched);

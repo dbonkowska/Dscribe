@@ -65,6 +65,6 @@ class SessionStoreTest {
         assertThrows(
                 UnsupportedOperationException.class,
                 () -> store.load("a").add(THERE),
-                "what load hands out is a copy, and says so by refusing to be written to");
+                "what load hands out is the stored list itself, and refuses to be written to");
     }
 }

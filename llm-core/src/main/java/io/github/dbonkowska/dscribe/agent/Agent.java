@@ -19,11 +19,15 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Lets a model drive a multi-step process: it picks a tool, reads the result, and picks again,
- * until it calls the answer tool.
+ * Lets a model drive a multi-step process: it picks a tool, reads the result, and picks again.
+ *
+ * <p>Two entry points, differing in what ends the run and in what the caller gets back.
+ * {@link #run(List, AnswerTool)} ends when the model calls the answer tool, and hands back what
+ * it answered with. {@link #run(List, StopCondition)} ends when a caller-supplied predicate
+ * accepts a turn, and hands back the whole conversation.
  *
  * <p>The cap counts model round-trips rather than tool calls — a turn with five parallel calls
- * is one iteration. Nothing else ends the loop: a tool failure goes back to the model as text
+ * is one iteration. Nothing else ends either loop: a tool failure goes back to the model as text
  * and costs an iteration, so does a nudge after a turn that produced no calls at all, and so
  * does an answer whose arguments would not deserialise.
  *
@@ -53,8 +57,11 @@ public final class Agent {
      * conversation — seed, assistant turns, tool results and nudges, in order. The caller keeps
      * that list and seeds the next run with it; nothing here is remembered between calls.
      *
-     * <p>The terminal turn is appended and then left alone. A run stopped on a tool call has that
-     * call *un*dispatched on purpose — see {@link StopCondition#untilToolCalled}.
+     * <p>The terminal turn is appended and then left alone — nothing in it is dispatched. A
+     * condition that stops on a turn carrying tool calls therefore hands back a conversation
+     * whose last calls have no results against them, which no provider will accept as the seed
+     * of another run. {@link StopCondition#untilNoToolCalls}, the only one shipped, cannot end
+     * that way.
      *
      * <p>Deliberately a second loop rather than a generalisation of {@link #run(List, AnswerTool)}.
      * Most of what separates the two is parameterisable — which specs go out, what the nudge says,

@@ -142,26 +142,44 @@ public class S01E03 {
      * One operator turn: whatever was said under this session id, plus what they just said, run
      * to the model's own words.
      *
-     * <p>Nothing in here may end the process. A malformed body is the caller's problem and comes
-     * back as 400; anything else is ours and comes back as 500 with its stack trace logged. Either
-     * way the server is still listening for the next turn.
+     * <p>Nothing in here may end the process. A request that is not a turn comes back as 405 or
+     * 400; anything else is ours and comes back as 500 with its stack trace logged. Either way
+     * the server is still listening for the next turn.
      */
     private static void handle(HttpExchange exchange, Agent agent, SessionStore sessions, Message persona)
             throws IOException {
 
-        String sessionId;
-        String said;
+        if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
+            exchange.getResponseHeaders().set("Allow", "POST");
+            respond(exchange, 405, "POST a JSON object to this endpoint.");
+            return;
+        }
+
+        JsonNode request;
         try (InputStream body = exchange.getRequestBody()) {
             // UTF-8 named explicitly, here and on the way out: the operator writes Polish, and a
             // platform default would mangle it into something the model then answers earnestly
-            JsonNode request = MAPPER.readTree(new String(body.readAllBytes(), StandardCharsets.UTF_8));
-            sessionId = request.path("sessionID").asString("");
-            said = request.path("msg").asString("");
+            request = MAPPER.readTree(new String(body.readAllBytes(), StandardCharsets.UTF_8));
         } catch (RuntimeException e) {
             log.warn("Malformed request body: {}", e.toString());
             respond(exchange, 400, "Malformed request body.");
             return;
         }
+
+        // the shape is checked before anything is spent, and an empty body is the case that
+        // makes it necessary: Jackson reads "" as a MissingNode rather than throwing, and
+        // path(...).asString("") cannot fail either — so every probe that found the endpoint
+        // while it was publicly tunnelled used to arrive as a real turn on an empty message,
+        // get paid for, and be written into the history under whatever id it didn't send
+        String said = request.path("msg").asString("");
+        if (!request.isObject() || said.isBlank()) {
+            respond(exchange, 400, "Expected a JSON object with a non-empty msg.");
+            return;
+        }
+
+        // a blank id is a legitimate session and stays one: past the check above, whoever sent it
+        // did say something, and the exercise is not obliged to key its first turn
+        String sessionId = request.path("sessionID").asString("");
 
         try {
             List<Message> history = new ArrayList<>(sessions.load(sessionId));
@@ -171,6 +189,11 @@ public class S01E03 {
             history.add(new Message(Role.user, said));
 
             List<Message> answered = agent.run(history, StopCondition.untilNoToolCalls());
+
+            // saved on the success path only, and the failure path deliberately rewinds the turn.
+            // A run that threw ends on an assistant turn whose tool calls never got results, and
+            // keeping that would make every later request for this session invalid at the
+            // provider — losing the turn is the cheaper of the two.
             sessions.save(sessionId, answered);
 
             // untilNoToolCalls guarantees the last turn is the model talking rather than calling,
