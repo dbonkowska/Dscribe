@@ -24,15 +24,15 @@ public record TaskParams(
     /**
      * The parts of the document the form fixes, rather than the run deriving them.
      *
-     * <p>Both earned their place by failing first. A run was rejected for answering
-     * {@code "A - Strategiczna"} where the form takes a bare letter, and another for writing a
-     * paragraph of justification into a field the briefing said to leave alone — the second
-     * despite the prompt saying so in as many words. Asking is weaker than not offering the
-     * field: {@code categories} narrows the answer schema so a wrong one is unrepresentable, and
-     * {@code remarks} is filled by the runner, so there is nothing for the model to fill in.
+     * <p>Both earned their place by failing first. One run was rejected for answering a field as
+     * a prose label where a code was expected, another for writing a paragraph into a slot the
+     * lesson fixes — the second despite the prompt asking for the opposite in as many words.
+     * Asking is weaker than not offering the field: {@code categories} narrows the answer schema
+     * so a wrong one is unrepresentable, and {@code remarks} is filled by the runner, so there is
+     * nothing for the model to fill in.
      *
-     * @param categories the vocabulary the template itself lists, as an indexed list
-     * @param remarks    what the remarks slot says, the briefing having asked for none
+     * @param categories the vocabulary the form allows, as an indexed list
+     * @param remarks    what the remarks slot says, the lesson having fixed it
      */
     public record Form(List<String> categories, String remarks) {}
 

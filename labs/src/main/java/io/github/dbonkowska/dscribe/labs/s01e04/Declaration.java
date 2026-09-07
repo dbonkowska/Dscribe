@@ -10,8 +10,8 @@ package io.github.dbonkowska.dscribe.labs.s01e04;
  * for, nor the document left with a slot nothing fills.
  *
  * <p>Two slots are missing on purpose, both filled by the runner instead. The model has no
- * reliable idea what today is, so {@code date} is not its to give; and {@code remarks} is a field
- * the briefing says to leave alone, which a model asked politely will still write a justification
+ * reliable idea what today is, so {@code date} is not its to give; and {@code remarks} is a slot
+ * the lesson fixes rather than the run deriving, which a model asked politely will still write
  * into — a rejected run is where that was learned. A field the model cannot see is a field it
  * cannot fill wrongly.
  *

@@ -40,9 +40,9 @@ public class S01E04 {
      * a cheaper model struggling. The diagram was never the hard part.
      *
      * <p>What made the difference was not the model. Two of Sonnet's three runs were rejected for
-     * the *shape* of a value rather than the substance — a category written as
-     * {@code "A - Strategiczna"}, remarks written at all — and both fields were afterwards taken
-     * out of the model's hands entirely. Luna's first run under those constraints passed.
+     * the *shape* of a value rather than its substance — one field answered as a prose label
+     * where a code was wanted, another written into at all — and both were afterwards taken out
+     * of the model's hands entirely. Luna's first run under those constraints passed.
      *
      * <p>A preference, not the last word — {@code -Dopenrouter.model}, {@code OPENROUTER_MODEL}
      * and {@code openrouter.model} each still win over it.
@@ -126,11 +126,11 @@ public class S01E04 {
 
     /**
      * The generator types {@code category} as a plain string, which leaves the model free to
-     * answer with something the hub cannot parse — and it did, answering {@code "A - Strategiczna"}
-     * where the form takes a bare letter, for a rejection that reported the field as *missing*
-     * rather than malformed. Narrowing it to the vocabulary the template itself lists makes that
-     * unrepresentable rather than merely unlikely. Same move as s01e01's and s01e02's, and the
-     * vocabulary again comes from the bundle rather than from source.
+     * answer with something the hub cannot parse — and it did, answering a prose label where a
+     * code was expected, for a rejection that reported the field as *missing* rather than
+     * malformed. Narrowing it to the vocabulary the bundle supplies makes that unrepresentable
+     * rather than merely unlikely. Same move as s01e01's and s01e02's, and the vocabulary again
+     * comes from the bundle rather than from source.
      */
     private static ObjectNode answerSchema(List<String> categories) {
         ObjectNode schema = SchemaUtils.from(Declaration.class);

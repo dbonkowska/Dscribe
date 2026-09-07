@@ -57,10 +57,17 @@ final class FetchTool {
         }
     }
 
+    /**
+     * Case-insensitively, and without a locale. {@code toLowerCase()} would take the platform
+     * default, under which a Turkish locale turns {@code "IMAGE/PNG"} into {@code "ımage/png"}
+     * and this branch quietly stops recognising images — decoding one as UTF-8 and pushing binary
+     * into the conversation instead of attaching it. Environment-dependent by default, corrupting
+     * rather than throwing: the failure class the principles already name.
+     */
     private static boolean isImage(HttpResponse<byte[]> response) {
         return response.headers()
                 .firstValue("content-type")
-                .map(type -> type.trim().toLowerCase().startsWith("image/"))
+                .map(type -> type.trim().regionMatches(true, 0, "image/", 0, "image/".length()))
                 .orElse(false);
     }
 
