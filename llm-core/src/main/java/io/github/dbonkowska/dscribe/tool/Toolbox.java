@@ -1,6 +1,8 @@
 package io.github.dbonkowska.dscribe.tool;
 
+import io.github.dbonkowska.dscribe.conversation.ContentPart;
 import io.github.dbonkowska.dscribe.conversation.Message;
+import io.github.dbonkowska.dscribe.conversation.Role;
 import io.github.dbonkowska.dscribe.conversation.ToolCall;
 import io.github.dbonkowska.dscribe.llm.ToolSpec;
 import tools.jackson.databind.DeserializationFeature;
@@ -41,21 +43,41 @@ public final class Toolbox {
         return byName.values().stream().map(Tool::spec).toList();
     }
 
-    public Message invoke(ToolCall call) {
+    public ToolCallMessages invoke(ToolCall call) {
         String name = call.function().name();
         Tool<?> tool = byName.get(name);
 
         if (tool == null) {
-            return Message.toolResult(
-                    call.id(), "Unknown tool: " + name + ". Available tools: " + byName.keySet());
+            return ToolCallMessages.of(Message.toolResult(
+                    call.id(), "Unknown tool: " + name + ". Available tools: " + byName.keySet()));
         }
 
         try {
             Object arguments = MAPPER.readValue(call.function().arguments(), tool.argumentType());
-            return Message.toolResult(call.id(), render(tool.apply(arguments)));
+            ToolOutput output = tool.apply(arguments);
+            Message result = Message.toolResult(call.id(), render(output.result()));
+
+            return output.image() == null
+                    ? ToolCallMessages.of(result)
+                    : new ToolCallMessages(result, List.of(shown(output.image())));
         } catch (RuntimeException e) {
-            return Message.toolResult(call.id(), "Tool failed: " + e);
+            return ToolCallMessages.of(Message.toolResult(call.id(), "Tool failed: " + e));
         }
+    }
+
+    /**
+     * An image, as the message that carries it to the model.
+     *
+     * <p>A {@code user} turn because no other role may hold image content. It leads with the URL
+     * as text, which is the only handle the model gets: an image reaches it as pixels, so a model
+     * that is shown one cannot otherwise name the file to a later tool call.
+     */
+    private static Message shown(ImageRef image) {
+        return new Message(
+                Role.user,
+                List.of(ContentPart.text(image.url()), ContentPart.image(image.url())),
+                null,
+                null);
     }
 
     /** A string result is the model's own medium; anything else goes back as JSON. */

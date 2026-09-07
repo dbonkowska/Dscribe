@@ -1,5 +1,6 @@
 package io.github.dbonkowska.dscribe.tool;
 
+import io.github.dbonkowska.dscribe.conversation.ContentPart;
 import io.github.dbonkowska.dscribe.conversation.Message;
 import io.github.dbonkowska.dscribe.conversation.Role;
 import io.github.dbonkowska.dscribe.conversation.ToolCall;
@@ -19,6 +20,11 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * arguments, or a handler blowing up, has to come back as text the model can read and retry —
  * an exception here ends a multi-step run that was one corrected argument away from finishing.
  *
+ * <p>An image is the other thing that cannot travel as a tool result: the provider's schema has
+ * no place for one in a {@code role=tool} message, so it leaves here as a separate message the
+ * agent appends afterwards. A failure path that produced one anyway would put a user message
+ * between two tool results and invalidate the next request.
+ *
  * <p>The fixture tools are invented: {@code lookup} and {@code count} belong to no lesson.
  */
 class ToolboxTest {
@@ -29,9 +35,14 @@ class ToolboxTest {
 
     private static final String CALL_ID = "call_1";
 
+    private static final String ARGUMENTS = "{\"query\":\"x\",\"limit\":1}";
+
+    private static final String IMAGE_URL = "https://e/x.png";
+
     @Test
     void rejectsTwoToolsSharingAName() {
-        List<Tool<?>> clashing = List.of(tool("lookup", args -> "a"), tool("lookup", args -> "b"));
+        List<Tool<?>> clashing =
+                List.of(tool("lookup", args -> ToolOutput.of("a")), tool("lookup", args -> ToolOutput.of("b")));
 
         IllegalArgumentException thrown =
                 assertThrows(IllegalArgumentException.class, () -> new Toolbox(clashing));
@@ -41,28 +52,67 @@ class ToolboxTest {
 
     @Test
     void passesAStringResultBackVerbatimAgainstTheCallItAnswers() {
-        Message result = invoke(tool("lookup", args -> "found " + args.query()), "lookup",
-                "{\"query\":\"x\",\"limit\":1}");
+        Message result = invoke(tool("lookup", args -> ToolOutput.of("found " + args.query())),
+                "lookup", ARGUMENTS).result();
 
         assertEquals(Role.tool, result.role());
         assertEquals(CALL_ID, result.toolCallId());
-        assertEquals("found x", result.content());
+        assertEquals("found x", result.text());
     }
 
     @Test
     void serialisesANonStringResultToJson() {
-        Message result = invoke(tool("lookup", args -> new Report(args.query(), args.limit())),
-                "lookup", "{\"query\":\"x\",\"limit\":2}");
+        Message result = invoke(
+                tool("lookup", args -> ToolOutput.of(new Report(args.query(), args.limit()))),
+                "lookup", "{\"query\":\"x\",\"limit\":2}").result();
 
-        assertEquals("{\"label\":\"x\",\"count\":2}", result.content());
+        assertEquals("{\"label\":\"x\",\"count\":2}", result.text());
+    }
+
+    @Test
+    void sendsAnImageAsAUserMessageAlongsideTheToolResult() {
+        ToolCallMessages messages = invoke(
+                tool("lookup", args -> new ToolOutput("fetched an image", new ImageRef(IMAGE_URL))),
+                "lookup", ARGUMENTS);
+
+        assertEquals(CALL_ID, messages.result().toolCallId());
+        assertEquals("fetched an image", messages.result().text());
+
+        assertEquals(1, messages.attachments().size(),
+                () -> "expected exactly one attachment, got: " + messages.attachments());
+
+        Message attachment = messages.attachments().getFirst();
+        assertEquals(Role.user, attachment.role(), "a tool-role message cannot carry an image");
+
+        List<ContentPart> parts = parts(attachment);
+        assertEquals(2, parts.size(), () -> "expected a text part and an image part, got: " + parts);
+        assertEquals("text", parts.get(0).type());
+        assertTrue(
+                parts.get(0).text().contains(IMAGE_URL),
+                () -> "the text part names the source, which is the model's only handle on the "
+                        + "file it is being shown: " + parts.get(0));
+        assertEquals("image_url", parts.get(1).type());
+        assertEquals(IMAGE_URL, parts.get(1).imageUrl().url());
+    }
+
+    @Test
+    void attachesNothingWhereTheHandlerProducedNoImage() {
+        Tool<Lookup> lookup = tool("lookup", args -> ToolOutput.of("a"));
+        Tool<Lookup> exploding = tool("lookup", args -> { throw new RuntimeException("boom"); });
+
+        assertEquals(List.of(), invoke(lookup, "lookup", ARGUMENTS).attachments(), "a plain result");
+        assertEquals(List.of(), invoke(lookup, "nosuchtool", "{}").attachments(), "an unknown tool");
+        assertEquals(List.of(), invoke(lookup, "lookup", "{").attachments(), "unreadable arguments");
+        assertEquals(List.of(), invoke(exploding, "lookup", ARGUMENTS).attachments(), "a failed handler");
     }
 
     @Test
     void reportsArgumentsItCannotDeserialiseRatherThanThrowing() {
-        Tool<Lookup> lookup = tool("lookup", args -> "never runs");
+        Tool<Lookup> lookup = tool("lookup", args -> ToolOutput.of("never runs"));
 
-        assertToolFailure(invoke(lookup, "lookup", "{"), "truncated JSON");
-        assertToolFailure(invoke(lookup, "lookup", "{\"query\":\"x\",\"limit\":\"lots\"}"), "wrong type");
+        assertToolFailure(invoke(lookup, "lookup", "{").result(), "truncated JSON");
+        assertToolFailure(
+                invoke(lookup, "lookup", "{\"query\":\"x\",\"limit\":\"lots\"}").result(), "wrong type");
     }
 
     @Test
@@ -70,25 +120,26 @@ class ToolboxTest {
         Message result = invoke(
                 tool("lookup", args -> { throw new RuntimeException("boom"); }),
                 "lookup",
-                "{\"query\":\"x\",\"limit\":1}");
+                ARGUMENTS).result();
 
         assertToolFailure(result, "handler threw");
-        assertTrue(result.content().contains("boom"), result::content);
+        assertTrue(result.text().contains("boom"), result::text);
     }
 
     @Test
     void reportsAnUnknownToolRatherThanThrowing() {
-        Message result = invoke(tool("lookup", args -> "a"), "nosuchtool", "{}");
+        Message result = invoke(tool("lookup", args -> ToolOutput.of("a")), "nosuchtool", "{}").result();
 
         assertTrue(
-                result.content().startsWith("Unknown tool: "),
-                () -> "expected an unknown-tool report, got: " + result.content());
-        assertTrue(result.content().contains("nosuchtool"), result::content);
+                result.text().startsWith("Unknown tool: "),
+                () -> "expected an unknown-tool report, got: " + result.text());
+        assertTrue(result.text().contains("nosuchtool"), result::text);
     }
 
     @Test
     void specsListEveryToolInRegistrationOrder() {
-        Toolbox toolbox = new Toolbox(List.of(tool("lookup", args -> "a"), tool("count", args -> "b")));
+        Toolbox toolbox = new Toolbox(
+                List.of(tool("lookup", args -> ToolOutput.of("a")), tool("count", args -> ToolOutput.of("b"))));
 
         List<String> names =
                 toolbox.specs().stream().map(ToolSpec::function).map(FunctionSpec::name).toList();
@@ -96,19 +147,24 @@ class ToolboxTest {
         assertEquals(List.of("lookup", "count"), names);
     }
 
-    private static Tool<Lookup> tool(String name, Function<Lookup, Object> handler) {
+    private static Tool<Lookup> tool(String name, Function<Lookup, ToolOutput> handler) {
         return new Tool<>(name, "finds things", Lookup.class, handler);
     }
 
-    private static Message invoke(Tool<?> registered, String calledName, String arguments) {
+    private static ToolCallMessages invoke(Tool<?> registered, String calledName, String arguments) {
         return new Toolbox(List.of(registered))
                 .invoke(new ToolCall(CALL_ID, "function", new ToolCall.Invocation(calledName, arguments)));
+    }
+
+    @SuppressWarnings("unchecked")
+    private static List<ContentPart> parts(Message message) {
+        return (List<ContentPart>) message.content();
     }
 
     private static void assertToolFailure(Message result, String because) {
         assertEquals(CALL_ID, result.toolCallId());
         assertTrue(
-                result.content().startsWith("Tool failed: "),
-                () -> "expected a failure report (" + because + "), got: " + result.content());
+                result.text().startsWith("Tool failed: "),
+                () -> "expected a failure report (" + because + "), got: " + result.text());
     }
 }

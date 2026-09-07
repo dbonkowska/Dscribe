@@ -13,6 +13,7 @@ import io.github.dbonkowska.dscribe.labs.lesson.Lesson;
 import io.github.dbonkowska.dscribe.labs.session.SessionStore;
 import io.github.dbonkowska.dscribe.llm.LlmClient;
 import io.github.dbonkowska.dscribe.tool.Tool;
+import io.github.dbonkowska.dscribe.tool.ToolOutput;
 import io.github.dbonkowska.dscribe.tool.Toolbox;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -198,7 +199,7 @@ public class S01E03 {
 
             // untilNoToolCalls guarantees the last turn is the model talking rather than calling,
             // but a provider may still hand that turn back with no content at all
-            String reply = answered.getLast().content();
+            String reply = answered.getLast().text();
             respond(exchange, 200, reply == null ? "" : reply);
         } catch (RuntimeException e) {
             log.warn("Turn failed for session {}", sessionId, e);
@@ -227,7 +228,7 @@ public class S01E03 {
                 spec.name(),
                 spec.description(),
                 argumentType,
-                query -> hub.post(spec.name(), path, withAction(action, query)));
+                query -> ToolOutput.of(hub.post(spec.name(), path, withAction(action, query))));
     }
 
     private static ObjectNode withAction(String action, Object query) {

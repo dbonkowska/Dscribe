@@ -5,6 +5,7 @@ import io.github.dbonkowska.dscribe.conversation.Role;
 import io.github.dbonkowska.dscribe.conversation.ToolCall;
 import io.github.dbonkowska.dscribe.llm.ChatTransport;
 import io.github.dbonkowska.dscribe.llm.ToolSpec;
+import io.github.dbonkowska.dscribe.tool.ToolCallMessages;
 import io.github.dbonkowska.dscribe.tool.Toolbox;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -85,22 +86,28 @@ public final class Agent {
 
             if (!turn.hasToolCalls()) {
                 // the nudge costs an iteration, so it has to be visible while it happens
-                log.info("{}. no tool calls, nudging: {}", iteration, oneLine(turn.content()));
+                log.info("{}. no tool calls, nudging: {}", iteration, oneLine(turn.text()));
                 messages.add(new Message(
                         Role.user, "Keep going by calling one of the tools you were given."));
                 continue;
             }
 
+            List<Message> attachments = new ArrayList<>();
             for (ToolCall call : turn.toolCalls()) {
                 // logged before it runs, so a model spinning on identical calls is visible live
                 log.info("{}. {} {}", iteration, call.function().name(), call.function().arguments());
 
-                Message result = tools.invoke(call);
+                ToolCallMessages produced = tools.invoke(call);
 
-                log.info("   -> {}", oneLine(result.content()));
+                log.info("   -> {}", oneLine(produced.result().text()));
 
-                messages.add(result);
+                messages.add(produced.result());
+                attachments.addAll(produced.attachments());
             }
+            // held back rather than appended where they arose: every tool result of a turn has to
+            // sit against the assistant turn that asked for it, and a user message wedged between
+            // two of them invalidates the next request
+            messages.addAll(attachments);
         }
 
         throw new AgentLimitException(maxIterations, messages);
@@ -116,7 +123,7 @@ public final class Agent {
 
             if (!turn.hasToolCalls()) {
                 // the nudge costs an iteration, so it has to be visible while it happens
-                log.info("{}. no tool calls, nudging: {}", iteration, oneLine(turn.content()));
+                log.info("{}. no tool calls, nudging: {}", iteration, oneLine(turn.text()));
                 messages.add(new Message(
                         Role.user, "You must finish by calling the " + answer.name() + " tool."));
                 continue;
@@ -145,6 +152,7 @@ public final class Agent {
                 }
             }
 
+            List<Message> attachments = new ArrayList<>();
             for (ToolCall call : turn.toolCalls()) {
                 Message refusal = refused.get(call.id());
                 if (refusal != null) {
@@ -158,14 +166,18 @@ public final class Agent {
                 // logged before it runs, so a model spinning on identical calls is visible live
                 log.info("{}. {} {}", iteration, call.function().name(), call.function().arguments());
 
-                Message result = tools.invoke(call);
+                ToolCallMessages produced = tools.invoke(call);
 
                 // and the result too: without it, a wrong answer gives no way to tell whether the
                 // model reasoned badly or was handed something other than what it expected
-                log.info("   -> {}", oneLine(result.content()));
+                log.info("   -> {}", oneLine(produced.result().text()));
 
-                messages.add(result);
+                messages.add(produced.result());
+                attachments.addAll(produced.attachments());
             }
+            // see the other loop: an attachment appended where it arose would split the run of
+            // tool results this turn owes
+            messages.addAll(attachments);
         }
 
         throw new AgentLimitException(maxIterations, messages);

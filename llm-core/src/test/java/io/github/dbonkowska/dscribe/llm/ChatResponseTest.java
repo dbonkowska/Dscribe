@@ -69,7 +69,7 @@ class ChatResponseTest {
 
         assertEquals("tool_calls", choice.finishReason());
         assertEquals(Role.assistant, choice.message().role());
-        assertNull(choice.message().content());
+        assertNull(choice.message().text());
 
         assertEquals(1, choice.message().toolCalls().size());
         ToolCall call = choice.message().toolCalls().getFirst();
@@ -84,7 +84,7 @@ class ChatResponseTest {
         ChatResponse.Choice choice = firstChoice(TEXT_PAYLOAD);
 
         assertEquals("stop", choice.finishReason());
-        assertEquals("42", choice.message().content());
+        assertEquals("42", choice.message().text());
         assertFalse(choice.message().hasToolCalls());
     }
 

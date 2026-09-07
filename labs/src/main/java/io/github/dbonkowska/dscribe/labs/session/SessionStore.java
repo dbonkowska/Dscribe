@@ -15,8 +15,15 @@ import java.util.concurrent.ConcurrentHashMap;
  * to somebody else. So a history goes in copied, comes back out shared but unmodifiable, and the
  * id is the only way to reach one.
  *
- * <p>Concurrent because the server it backs is: a handler runs on whichever thread its request
- * arrived on, and two sessions can be mid-run at once.
+ * <p>A concurrent map even though the one server using it today runs handlers one at a time —
+ * s01e03 gives its {@code HttpServer} no executor, on purpose. That is the server's decision to
+ * revisit, and a store that were only safe single-threaded would become the reason it couldn't
+ * be: adding an executor would corrupt the map rather than merely widening it.
+ *
+ * <p>The map being concurrent is not the same as a session being safe under parallel handlers.
+ * A turn is load, run, save, and nothing holds the id across the three — two requests on one
+ * session at once would each seed from the same history and the later save would win, losing
+ * the other's turn. Out of scope until a lesson serves one session concurrently.
  */
 public final class SessionStore {
 

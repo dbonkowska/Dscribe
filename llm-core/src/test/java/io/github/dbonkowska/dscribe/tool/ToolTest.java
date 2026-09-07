@@ -24,7 +24,7 @@ class ToolTest {
     record Lookup(String query, int limit) {}
 
     private static final Tool<Lookup> LOOKUP =
-            new Tool<>("lookup", "finds things", Lookup.class, Lookup::query);
+            new Tool<>("lookup", "finds things", Lookup.class, args -> ToolOutput.of(args.query()));
 
     @Test
     void describesItselfAsAStrictFunctionTheProviderCanCall() {
