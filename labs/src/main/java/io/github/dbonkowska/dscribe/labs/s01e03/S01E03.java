@@ -13,6 +13,7 @@ import io.github.dbonkowska.dscribe.labs.lesson.Lesson;
 import io.github.dbonkowska.dscribe.labs.session.SessionStore;
 import io.github.dbonkowska.dscribe.llm.LlmClient;
 import io.github.dbonkowska.dscribe.tool.Tool;
+import io.github.dbonkowska.dscribe.tool.ToolOutput;
 import io.github.dbonkowska.dscribe.tool.Toolbox;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -227,7 +228,7 @@ public class S01E03 {
                 spec.name(),
                 spec.description(),
                 argumentType,
-                query -> hub.post(spec.name(), path, withAction(action, query)));
+                query -> ToolOutput.of(hub.post(spec.name(), path, withAction(action, query))));
     }
 
     private static ObjectNode withAction(String action, Object query) {

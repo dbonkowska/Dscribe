@@ -10,14 +10,15 @@ import java.util.function.Function;
  * the single source of both halves — the schema the model is given and the type the arguments
  * are deserialised into — so the two cannot drift apart.
  *
- * @param handler returns whatever the model should read back; it is serialised to JSON unless
- *                it is already a {@code String}
+ * @param handler what the model reads back, and any image it should be shown — see
+ *                {@link ToolOutput}. The payload is serialised to JSON unless it is already a
+ *                {@code String}
  */
 public record Tool<A>(
         String name,
         String description,
         Class<A> argumentType,
-        Function<A, Object> handler) {
+        Function<A, ToolOutput> handler) {
 
     public ToolSpec spec() {
         return ToolSpec.function(name, description, SchemaUtils.from(argumentType));
@@ -32,7 +33,7 @@ public record Tool<A>(
      * suppressed at every dispatch site.
      */
     @SuppressWarnings("unchecked")
-    Object apply(Object arguments) {
+    ToolOutput apply(Object arguments) {
         return handler.apply((A) arguments);
     }
 }

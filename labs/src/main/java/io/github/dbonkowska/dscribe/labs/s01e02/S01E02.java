@@ -12,6 +12,7 @@ import io.github.dbonkowska.dscribe.labs.lesson.Lesson;
 import io.github.dbonkowska.dscribe.llm.LlmClient;
 import io.github.dbonkowska.dscribe.schema.SchemaUtils;
 import io.github.dbonkowska.dscribe.tool.Tool;
+import io.github.dbonkowska.dscribe.tool.ToolOutput;
 import io.github.dbonkowska.dscribe.tool.Toolbox;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.node.ArrayNode;
@@ -141,7 +142,7 @@ public class S01E02 {
                 spec.name(),
                 spec.description(),
                 argumentType,
-                query -> hub.post(spec.name(), spec.path(), query));
+                query -> ToolOutput.of(hub.post(spec.name(), spec.path(), query)));
     }
 
     private static String roster(List<Suspect> suspects) {
