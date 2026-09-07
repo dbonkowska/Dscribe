@@ -9,7 +9,10 @@ import io.github.dbonkowska.dscribe.labs.data.RunTranscript;
 import io.github.dbonkowska.dscribe.labs.hub.HubClient;
 import io.github.dbonkowska.dscribe.labs.lesson.Lesson;
 import io.github.dbonkowska.dscribe.llm.LlmClient;
+import io.github.dbonkowska.dscribe.schema.SchemaUtils;
 import io.github.dbonkowska.dscribe.tool.Toolbox;
+import tools.jackson.databind.node.ArrayNode;
+import tools.jackson.databind.node.ObjectNode;
 
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.RecordComponent;
@@ -22,18 +25,29 @@ import java.util.regex.Pattern;
 public class S01E04 {
 
     /**
-     * The model this lesson's flag was earned on, pinned for the same reason as the earlier
-     * lessons: {@code labs/data} is gitignored, so nothing else in version control records it.
+     * The flag has been earned on this model and on {@code anthropic/claude-sonnet-5}, recorded
+     * here because {@code labs/data} is gitignored and nothing else in version control would say
+     * so.
      *
-     * <p>Chosen strong rather than cheap. Part of the documentation is a diagram, and a weak
-     * vision model misreading one fails in a way that looks like bad reasoning rather than bad
-     * perception — which is the most expensive kind of run to debug. Drop to something cheaper
-     * only after a run has succeeded once.
+     * <p>Sonnet went first, chosen strong rather than cheap: part of the documentation is a
+     * diagram, and a weak vision model misreading one fails in a way that looks like bad
+     * reasoning rather than bad perception. It earned the flag on its second attempt, having
+     * first written a paragraph into a field the briefing said to leave empty.
+     *
+     * <p>This one is pinned because the step down turned out to cost nothing. At 0.20/1.20
+     * against Sonnet's 2.00/10.00 per 1M tokens it is a tenth of the price, and it finished in
+     * five round-trips where Sonnet took far more — a cheaper model reading fewer documents, not
+     * a cheaper model struggling. The diagram was never the hard part.
+     *
+     * <p>What made the difference was not the model. Two of Sonnet's three runs were rejected for
+     * the *shape* of a value rather than the substance — a category written as
+     * {@code "A - Strategiczna"}, remarks written at all — and both fields were afterwards taken
+     * out of the model's hands entirely. Luna's first run under those constraints passed.
      *
      * <p>A preference, not the last word — {@code -Dopenrouter.model}, {@code OPENROUTER_MODEL}
      * and {@code openrouter.model} each still win over it.
      */
-    private static final String MODEL = "anthropic/claude-sonnet-5";
+    private static final String MODEL = "openai/gpt-5.6-luna";
 
     /**
      * Counts model round-trips, not tool calls. The documentation is a tree of roughly a dozen
@@ -47,6 +61,12 @@ public class S01E04 {
 
     /** The shape {@code /verify} expects: the whole document as one string. */
     record Submission(String declaration) {}
+
+    /**
+     * The slots the runner fills rather than the model — component names matching their
+     * placeholders, so the same {@link #fill} pass handles them.
+     */
+    record Fixed(String date, String remarks) {}
 
     public static void main(String[] args) {
         LabsConfig labsConfig = LabsConfig.load();
@@ -74,7 +94,8 @@ public class S01E04 {
                     FetchTool.of(task.fetch().name(), task.fetch().description())));
 
             AnswerTool<Declaration> answerTool = new AnswerTool<>(
-                    task.answer().name(), task.answer().description(), Declaration.class);
+                    task.answer().name(), task.answer().description(), Declaration.class,
+                    answerSchema(task.form().categories()));
 
             List<Message> seed = List.of(
                     new Message(Role.system, lesson.prompt("system.md")),
@@ -85,8 +106,9 @@ public class S01E04 {
 
             Declaration declaration = new Agent(recorded, tools, MAX_ITERATIONS).run(seed, answerTool);
 
-            String document = fill(lesson.prompt("declaration.template"), declaration)
-                    .replace("{date}", LocalDate.now().toString());
+            String document = fill(
+                    fill(lesson.prompt("declaration.template"), declaration),
+                    new Fixed(LocalDate.now().toString(), task.form().remarks()));
 
             requireEverySlotFilled(document);
             reportBriefingDrift(declaration, task.briefing());
@@ -100,6 +122,21 @@ public class S01E04 {
             System.out.println(verified);
             System.out.println("Transcript: " + transcript.file());
         }
+    }
+
+    /**
+     * The generator types {@code category} as a plain string, which leaves the model free to
+     * answer with something the hub cannot parse — and it did, answering {@code "A - Strategiczna"}
+     * where the form takes a bare letter, for a rejection that reported the field as *missing*
+     * rather than malformed. Narrowing it to the vocabulary the template itself lists makes that
+     * unrepresentable rather than merely unlikely. Same move as s01e01's and s01e02's, and the
+     * vocabulary again comes from the bundle rather than from source.
+     */
+    private static ObjectNode answerSchema(List<String> categories) {
+        ObjectNode schema = SchemaUtils.from(Declaration.class);
+        ArrayNode allowed = SchemaUtils.at(schema, "/properties/category").putArray("enum");
+        categories.forEach(allowed::add);
+        return schema;
     }
 
     /**
