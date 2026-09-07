@@ -198,7 +198,7 @@ public class S01E03 {
 
             // untilNoToolCalls guarantees the last turn is the model talking rather than calling,
             // but a provider may still hand that turn back with no content at all
-            String reply = answered.getLast().content();
+            String reply = answered.getLast().text();
             respond(exchange, 200, reply == null ? "" : reply);
         } catch (RuntimeException e) {
             log.warn("Turn failed for session {}", sessionId, e);

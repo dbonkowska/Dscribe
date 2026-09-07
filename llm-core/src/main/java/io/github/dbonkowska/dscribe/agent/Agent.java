@@ -85,7 +85,7 @@ public final class Agent {
 
             if (!turn.hasToolCalls()) {
                 // the nudge costs an iteration, so it has to be visible while it happens
-                log.info("{}. no tool calls, nudging: {}", iteration, oneLine(turn.content()));
+                log.info("{}. no tool calls, nudging: {}", iteration, oneLine(turn.text()));
                 messages.add(new Message(
                         Role.user, "Keep going by calling one of the tools you were given."));
                 continue;
@@ -97,7 +97,7 @@ public final class Agent {
 
                 Message result = tools.invoke(call);
 
-                log.info("   -> {}", oneLine(result.content()));
+                log.info("   -> {}", oneLine(result.text()));
 
                 messages.add(result);
             }
@@ -116,7 +116,7 @@ public final class Agent {
 
             if (!turn.hasToolCalls()) {
                 // the nudge costs an iteration, so it has to be visible while it happens
-                log.info("{}. no tool calls, nudging: {}", iteration, oneLine(turn.content()));
+                log.info("{}. no tool calls, nudging: {}", iteration, oneLine(turn.text()));
                 messages.add(new Message(
                         Role.user, "You must finish by calling the " + answer.name() + " tool."));
                 continue;
@@ -162,7 +162,7 @@ public final class Agent {
 
                 // and the result too: without it, a wrong answer gives no way to tell whether the
                 // model reasoned badly or was handed something other than what it expected
-                log.info("   -> {}", oneLine(result.content()));
+                log.info("   -> {}", oneLine(result.text()));
 
                 messages.add(result);
             }

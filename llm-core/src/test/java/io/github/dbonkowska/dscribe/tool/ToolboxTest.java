@@ -46,7 +46,7 @@ class ToolboxTest {
 
         assertEquals(Role.tool, result.role());
         assertEquals(CALL_ID, result.toolCallId());
-        assertEquals("found x", result.content());
+        assertEquals("found x", result.text());
     }
 
     @Test
@@ -54,7 +54,7 @@ class ToolboxTest {
         Message result = invoke(tool("lookup", args -> new Report(args.query(), args.limit())),
                 "lookup", "{\"query\":\"x\",\"limit\":2}");
 
-        assertEquals("{\"label\":\"x\",\"count\":2}", result.content());
+        assertEquals("{\"label\":\"x\",\"count\":2}", result.text());
     }
 
     @Test
@@ -73,7 +73,7 @@ class ToolboxTest {
                 "{\"query\":\"x\",\"limit\":1}");
 
         assertToolFailure(result, "handler threw");
-        assertTrue(result.content().contains("boom"), result::content);
+        assertTrue(result.text().contains("boom"), result::text);
     }
 
     @Test
@@ -81,9 +81,9 @@ class ToolboxTest {
         Message result = invoke(tool("lookup", args -> "a"), "nosuchtool", "{}");
 
         assertTrue(
-                result.content().startsWith("Unknown tool: "),
-                () -> "expected an unknown-tool report, got: " + result.content());
-        assertTrue(result.content().contains("nosuchtool"), result::content);
+                result.text().startsWith("Unknown tool: "),
+                () -> "expected an unknown-tool report, got: " + result.text());
+        assertTrue(result.text().contains("nosuchtool"), result::text);
     }
 
     @Test
@@ -108,7 +108,7 @@ class ToolboxTest {
     private static void assertToolFailure(Message result, String because) {
         assertEquals(CALL_ID, result.toolCallId());
         assertTrue(
-                result.content().startsWith("Tool failed: "),
-                () -> "expected a failure report (" + because + "), got: " + result.content());
+                result.text().startsWith("Tool failed: "),
+                () -> "expected a failure report (" + because + "), got: " + result.text());
     }
 }

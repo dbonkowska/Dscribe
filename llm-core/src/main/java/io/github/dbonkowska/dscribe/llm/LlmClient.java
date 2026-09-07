@@ -63,7 +63,7 @@ public class LlmClient implements ChatTransport {
         String content = firstChoice(
                 exchange(new ChatRequest(model, messages, responseFormat)))
                 .message()
-                .content();
+                .text();
 
         return MAPPER.readValue(content, type);
     }

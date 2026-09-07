@@ -69,7 +69,7 @@ class AgentTest {
         Message result = transport.request(1).getLast();
         assertEquals(Role.tool, result.role());
         assertEquals("call_1", result.toolCallId());
-        assertEquals("found x", result.content());
+        assertEquals("found x", result.text());
     }
 
     @Test
@@ -128,7 +128,7 @@ class AgentTest {
         Answer answer = new Agent(transport, new Toolbox(List.of(exploding)), 12).run(SEED, ANSWER);
 
         assertEquals(new Answer("guilty"), answer);
-        String reported = transport.request(1).getLast().content();
+        String reported = transport.request(1).getLast().text();
         assertTrue(reported.startsWith("Tool failed: "), () -> "the model must see the failure: " + reported);
     }
 
@@ -142,7 +142,7 @@ class AgentTest {
 
         Message nudge = transport.request(1).getLast();
         assertEquals(Role.user, nudge.role());
-        assertTrue(nudge.content().contains("answer"), () -> "the nudge must name the tool: " + nudge.content());
+        assertTrue(nudge.text().contains("answer"), () -> "the nudge must name the tool: " + nudge.text());
     }
 
     @Test
@@ -191,7 +191,7 @@ class AgentTest {
         Message refusal = transport.request(1).getLast();
         assertEquals(Role.tool, refusal.role());
         assertEquals("call_1", refusal.toolCallId());
-        assertTrue(refusal.content().contains("answer"), refusal::content);
+        assertTrue(refusal.text().contains("answer"), refusal::text);
     }
 
     @Test
@@ -223,7 +223,7 @@ class AgentTest {
         assertEquals(SEED.getFirst(), conversation.getFirst(), "the seed opens the conversation");
         Message last = conversation.getLast();
         assertEquals(Role.assistant, last.role());
-        assertEquals("done", last.content());
+        assertEquals("done", last.text());
         assertEquals(1, transport.calls());
         assertEquals(List.of(), dispatched);
     }
@@ -237,7 +237,7 @@ class AgentTest {
         List<Message> conversation = agent(transport, 12).run(SEED, StopCondition.untilNoToolCalls());
 
         assertEquals(List.of("x"), dispatched);
-        assertEquals("done", conversation.getLast().content());
+        assertEquals("done", conversation.getLast().text());
         assertEquals(2, transport.calls());
     }
 
@@ -246,7 +246,7 @@ class AgentTest {
         // the loop takes any predicate, and one that does not stop on plain text leaves a turn
         // with nothing to dispatch. Without the nudge the next request is the one that just came
         // back, and the run spends its whole cap asking again.
-        StopCondition untilDone = turn -> "done".equals(turn.content());
+        StopCondition untilDone = turn -> "done".equals(turn.text());
         ScriptedTransport transport = new ScriptedTransport(text("thinking"), text("done"));
 
         List<Message> conversation = agent(transport, 12).run(SEED, untilDone);
@@ -254,7 +254,7 @@ class AgentTest {
         Message nudge = transport.request(1).getLast();
         assertEquals(Role.user, nudge.role());
         assertEquals(2, transport.calls());
-        assertEquals("done", conversation.getLast().content());
+        assertEquals("done", conversation.getLast().text());
     }
 
     @Test

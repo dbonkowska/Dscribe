@@ -9,6 +9,7 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -65,6 +66,48 @@ class MessageTest {
         assertFalse(new Message(Role.assistant, "just text").hasToolCalls());
         assertFalse(new Message(Role.assistant, null, List.of(), null).hasToolCalls());
         assertTrue(new Message(Role.assistant, null, List.of(call), null).hasToolCalls());
+    }
+
+    @Test
+    void carriesTextAndAnImageTogetherAsContentParts() {
+        Message message = new Message(
+                Role.user,
+                List.of(
+                        new ContentPart("text", "see", null),
+                        new ContentPart("image_url", null, new ImageUrl("https://e/x.png"))),
+                null,
+                null);
+
+        JsonNode content = json(message).get("content");
+
+        assertTrue(content.isArray(), () -> "content must be an array of parts, got: " + content);
+        assertEquals(2, content.size());
+
+        JsonNode text = content.get(0);
+        assertEquals("text", text.get("type").stringValue());
+        assertEquals("see", text.get("text").stringValue());
+        assertFalse(text.has("image_url"), () -> "a text part carries no image key: " + text);
+
+        JsonNode image = content.get(1);
+        assertEquals("image_url", image.get("type").stringValue());
+        assertEquals("https://e/x.png", image.get("image_url").get("url").stringValue());
+        assertFalse(image.has("text"), () -> "an image part carries no text key: " + image);
+    }
+
+    @Test
+    void textIsTheContentOfAPlainTurnAndNullWhereThereAreParts() {
+        Message parts =
+                new Message(Role.user, List.of(new ContentPart("text", "see", null)), null, null);
+
+        assertEquals("hi", new Message(Role.user, "hi").text());
+        assertNull(parts.text(), "a message carrying parts has no plain text");
+    }
+
+    @Test
+    void readsAStringContentBackFromTheWire() {
+        Message turn = MAPPER.readValue("{\"role\":\"assistant\",\"content\":\"42\"}", Message.class);
+
+        assertEquals("42", turn.text());
     }
 
     private static JsonNode json(Message message) {
