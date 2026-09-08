@@ -14,6 +14,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
@@ -223,6 +224,17 @@ public final class RunTranscript implements Transcript, AutoCloseable {
         headers.map().forEach((name, values) -> lines.append("- `")
                 .append(name).append(": ").append(String.join(", ", values)).append("`\n"));
         return lines.isEmpty() ? "- *(none)*\n" : lines.toString();
+    }
+
+    /**
+     * A pause the run took on purpose, and why.
+     *
+     * <p>Without this a rate-limited run reads as a gap between two hub calls, indistinguishable
+     * from a slow server or a stall — and the waiting is the part of this lesson most worth being
+     * able to see afterwards.
+     */
+    public void hubWait(String reason, Duration waited) {
+        write("\n## turn " + turn + " · hub · waited " + waited.toSeconds() + "s — " + reason + "\n");
     }
 
     /** What the run made of itself: what was submitted, and what the hub said about it. */
