@@ -4,12 +4,14 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.io.IOException;
+import java.net.http.HttpHeaders;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import io.github.dbonkowska.dscribe.labs.TestHeaders;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -211,13 +213,15 @@ class RunTranscriptTest {
     void recordsTheHubCallAToolHandlerMade() throws IOException {
         RunTranscript transcript = RunTranscript.open(root(), "x01", SETTINGS, List.of("hub-k3y"));
 
-        transcript.hubCall("lookup", "/api/thing", 200,
+        transcript.hubCall("lookup", "/api/thing", 200, headers(Map.of("X-Limit-Reset", "30")),
                 "{\"apikey\":\"hub-k3y\",\"q\":\"x\"}", "[{\"found\":true}]");
 
         String written = contents(transcript);
         assertTrue(written.contains("lookup → /api/thing"), () -> written);
         assertTrue(written.contains("200"), () -> written);
         assertTrue(written.contains("[{\"found\":true}]"), () -> written);
+        // which header carries a rate limit is not known ahead of time, so the file keeps them all
+        assertTrue(written.contains("X-Limit-Reset: 30"), () -> written);
         assertFalse(written.contains("hub-k3y"), "the key must never reach disk");
     }
 
@@ -274,7 +278,8 @@ class RunTranscriptTest {
     void stripsTransportPaddingFromAroundAHubCall() throws IOException {
         RunTranscript transcript = open(root());
 
-        transcript.hubCall("lookup", "/api/thing", 200, "  {\"q\":\"x\"}\n", "\n\n[{\"found\":true}]\n ");
+        transcript.hubCall("lookup", "/api/thing", 200, headers(Map.of()),
+                "  {\"q\":\"x\"}\n", "\n\n[{\"found\":true}]\n ");
 
         String written = contents(transcript);
         assertTrue(written.contains("```json\n{\"q\":\"x\"}\n```"), () -> written);
@@ -321,5 +326,9 @@ class RunTranscriptTest {
         transcript.append(request("{\"role\":\"user\",\"content\":\"go\"}"), TEXT_RESPONSE);
 
         assertFalse(contents(transcript).contains("<summary>reasoning"), "no empty fold");
+    }
+
+    private static HttpHeaders headers(Map<String, String> values) {
+        return TestHeaders.of(values);
     }
 }

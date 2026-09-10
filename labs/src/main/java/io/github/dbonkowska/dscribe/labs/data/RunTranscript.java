@@ -9,10 +9,12 @@ import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.io.IOException;
+import java.net.http.HttpHeaders;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
@@ -199,13 +201,40 @@ public final class RunTranscript implements Transcript, AutoCloseable {
         }
     }
 
-    /** The hop between the model asking and the model being answered: our request, the hub's reply. */
-    public void hubCall(String label, String path, int status, String request, String response) {
+    /**
+     * The hop between the model asking and the model being answered: our request, the hub's reply.
+     *
+     * <p>Headers are kept because a rate limit announces itself in one and nowhere else. Which
+     * name it uses is not known ahead of time, so they are written whole rather than filtered —
+     * the file is where you find out. Redaction runs over them like everything else.
+     */
+    public void hubCall(
+            String label, String path, int status, HttpHeaders headers, String request, String response) {
+
         write("\n## turn " + turn + " · hub · " + label + " → " + path + "\n\n"
                 + "request · " + status + "\n\n"
                 + "```json\n" + request.strip() + "\n```\n\n"
+                + "response headers\n\n" + rendered(headers) + "\n"
                 + "response\n\n"
                 + "```json\n" + response.strip() + "\n```\n");
+    }
+
+    private static String rendered(HttpHeaders headers) {
+        StringBuilder lines = new StringBuilder();
+        headers.map().forEach((name, values) -> lines.append("- `")
+                .append(name).append(": ").append(String.join(", ", values)).append("`\n"));
+        return lines.isEmpty() ? "- *(none)*\n" : lines.toString();
+    }
+
+    /**
+     * A pause the run took on purpose, and why.
+     *
+     * <p>Without this a rate-limited run reads as a gap between two hub calls, indistinguishable
+     * from a slow server or a stall — and the waiting is the part of this lesson most worth being
+     * able to see afterwards.
+     */
+    public void hubWait(String reason, Duration waited) {
+        write("\n## turn " + turn + " · hub · waited " + waited.toSeconds() + "s — " + reason + "\n");
     }
 
     /** What the run made of itself: what was submitted, and what the hub said about it. */
