@@ -9,18 +9,19 @@ import java.time.Instant;
 import java.util.Optional;
 
 /**
- * Talks to a hub endpoint that fails on purpose: it retries what is worth retrying, and waits out
- * a request budget rather than spending it.
+ * Talks to a hub endpoint that fails on purpose: it retries what is worth retrying, and waits as
+ * long as a refusal tells it to.
  *
  * <p>Wraps {@link HubSend} rather than living inside {@link HubClient}, so the single-shot call
  * every earlier lesson makes keeps its behaviour exactly. Nothing here is reached unless a caller
  * asks for it.
  *
- * <p>Two kinds of wait, and the difference matters. A **reactive** one follows a refusal: the
- * server has just said no, and if it said when to come back that beats any local schedule. A
- * **proactive** one is carried to the *next* call after a response reported the budget spent —
- * before the request, never after the last one, because waiting out a reset nobody is waiting on
- * is pure delay.
+ * <p>Purely reactive, and that is a finding rather than a simplification. The first design also
+ * waited *ahead* of a call whenever a successful response reported its budget spent — which
+ * never once happened across the real runs, because this API attaches rate-limit headers only to
+ * refusals and never to a 200. So the shape of a run is: send, be refused, wait what the refusal
+ * said, send again. Something that pre-empts the refusal would be better, and would need an API
+ * that says enough on success to make it possible.
  *
  * <p>Nothing bounds the total elapsed time of a run. A cap could kill one seconds from success
  * and waste everything already spent; the INFO line before each wait is what makes a long sit
@@ -36,9 +37,6 @@ public final class ResilientHub {
     private final RateLimitHeaders limits;
     private final Sleeper sleeper;
     private final RunTranscript transcript;
-
-    /** What the previous call was told to wait before the next one, or null when it said nothing. */
-    private Duration pending;
 
     public ResilientHub(
             HubSend hub,
@@ -59,23 +57,25 @@ public final class ResilientHub {
     /**
      * Sends {@code answer} and returns the body, retrying while the endpoint says to come back.
      *
-     * @throws IllegalStateException once the policy's attempts are spent. Nothing is swallowed:
-     *                               a caller that ran out of attempts needs to hear about it
-     *                               rather than read an error body as an answer.
+     * <p>Throws once the policy's attempts are spent — but note what happens to that exception in
+     * this application rather than in principle. Its caller is a tool handler, and
+     * {@code Toolbox} turns anything a handler throws into a tool result, so the model reads
+     * "the hub kept refusing" as text and is free to call the tool again, spending a second full
+     * cap. That is survivable because the agent's iteration cap bounds it, and it is preferable
+     * to ending the run outright: a model told the API is refusing can decide to stop, where a
+     * killed run cannot decide anything.
+     *
+     * @throws IllegalStateException when every attempt has been spent
      */
     public String call(String label, Object answer) {
-        payAnyDebt();
-
         for (int attempt = 1; ; attempt++) {
             HubResponse response = hub.send(label + " · attempt " + attempt, taskName, answer);
 
             if (!response.isRetryable()) {
-                // carried, not taken: this call is done, and the budget is owed before the next
-                pending = limits.waitAfter(response.headers(), Instant.now()).orElse(null);
                 return response.body();
             }
 
-            Optional<Duration> backoff = retry.backoffBefore(attempt + 1);
+            Optional<Duration> backoff = retry.backoffAfter(attempt);
             if (backoff.isEmpty()) {
                 throw new IllegalStateException(
                         "The hub kept refusing " + label + " after " + attempt
@@ -85,14 +85,6 @@ public final class ResilientHub {
             // the server's own number wins where it gave one
             Duration wait = limits.resetAfter(response.headers(), Instant.now()).orElse(backoff.get());
             waitOut(wait, "status " + response.status() + " on attempt " + attempt);
-        }
-    }
-
-    private void payAnyDebt() {
-        if (pending != null) {
-            Duration owed = pending;
-            pending = null;
-            waitOut(owed, "request budget spent");
         }
     }
 

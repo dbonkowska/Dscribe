@@ -10,7 +10,7 @@ import java.util.List;
 import java.util.Optional;
 
 /**
- * What a response's headers say about when the next call may go out.
+ * What a refusal's headers say about when to come back.
  *
  * <p>The names come from the lesson bundle rather than from here. The exercise supplies them,
  * which puts them under the same rule as any other task parameter — and it is also what lets the
@@ -21,11 +21,15 @@ import java.util.Optional;
  * right: a misread costs a wrong-length wait, never a hung run, and the clamp keeps holding if
  * the API changes shape later.
  *
- * @param resetHeaders     names that may carry when the budget refills, most preferred first
- * @param remainingHeaders names that may carry how much budget is left
- * @param maxWait          the ceiling every computed wait is clamped to
+ * <p>This reads only what a response volunteers. It once also decided whether to wait *before* a
+ * later call, on the strength of a remaining-budget header — a mechanism the runs then showed
+ * could never fire, because this API reports its budget only when refusing and never on success.
+ * It was deleted rather than kept for an API that might behave otherwise.
+ *
+ * @param resetHeaders names that may carry when the budget refills, most preferred first
+ * @param maxWait      the ceiling every computed wait is clamped to
  */
-public record RateLimitHeaders(List<String> resetHeaders, List<String> remainingHeaders, Duration maxWait) {
+public record RateLimitHeaders(List<String> resetHeaders, Duration maxWait) {
 
     /** Above this many, a number is a timestamp in milliseconds rather than a count of them. */
     private static final long MILLIS_TIMESTAMP = 1_000_000_000_000L;
@@ -38,30 +42,14 @@ public record RateLimitHeaders(List<String> resetHeaders, List<String> remaining
      * says, including when the value cannot be read at all — an unreadable header is treated as
      * absent rather than guessed at.
      *
-     * <p>Used directly on the retry path, where a server that has just rejected a call is a
-     * better authority on when to come back than any local schedule.
+     * <p>A server that has just refused a call is a better authority on when to come back than
+     * any local schedule, so this takes precedence over one wherever it answers.
      */
     public Optional<Duration> resetAfter(HttpHeaders headers, Instant now) {
         return firstPresent(headers, resetHeaders)
                 .flatMap(value -> parse(value, now))
                 .map(this::clamped)
                 .filter(wait -> !wait.isZero());
-    }
-
-    /**
-     * Whether to wait before the *next* call, having just had a successful one.
-     *
-     * <p>Only when a remaining header says the budget is spent. A response that reports budget
-     * left needs no wait, and one that reports nothing at all gets none either: waiting for every
-     * reset would serialise a whole run to one call per window, so an unannounced limit is
-     * defended by reacting to the rejection instead.
-     */
-    public Optional<Duration> waitAfter(HttpHeaders headers, Instant now) {
-        return remaining(headers).filter(left -> left <= 0).flatMap(spent -> resetAfter(headers, now));
-    }
-
-    private Optional<Long> remaining(HttpHeaders headers) {
-        return firstPresent(headers, remainingHeaders).flatMap(RateLimitHeaders::asLong);
     }
 
     /** The first of the configured names that is actually there, blank counting as absent. */

@@ -18,31 +18,32 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  */
 class RetryPolicyTest {
 
-    /** Small and exact, so every step of the curve is legible: 1s, 2s, 4s, then the 5s ceiling. */
+    /** Five attempts, 1s doubling to a 5s ceiling — every step of the curve stays legible. */
     private static final RetryPolicy POLICY =
-            new RetryPolicy(4, Duration.ofSeconds(1), 2.0, Duration.ofSeconds(5));
+            new RetryPolicy(5, Duration.ofSeconds(1), 2.0, Duration.ofSeconds(5));
 
     @Test
-    void startsAtTheInitialBackoff() {
-        assertEquals(Optional.of(Duration.ofSeconds(1)), POLICY.backoffBefore(1));
+    void waitsTheInitialBackoffAfterTheFirstFailure() {
+        assertEquals(Optional.of(Duration.ofSeconds(1)), POLICY.backoffAfter(1));
     }
 
     @Test
-    void growsByTheMultiplierOnEachAttempt() {
-        assertEquals(Optional.of(Duration.ofSeconds(2)), POLICY.backoffBefore(2));
-        assertEquals(Optional.of(Duration.ofSeconds(4)), POLICY.backoffBefore(3));
+    void growsByTheMultiplierWithEachFailure() {
+        assertEquals(Optional.of(Duration.ofSeconds(2)), POLICY.backoffAfter(2));
+        assertEquals(Optional.of(Duration.ofSeconds(4)), POLICY.backoffAfter(3));
     }
 
     @Test
     void clampsToTheCeilingRatherThanDoublingPastIt() {
         // the curve would give 8s here
-        assertEquals(Optional.of(Duration.ofSeconds(5)), POLICY.backoffBefore(4));
+        assertEquals(Optional.of(Duration.ofSeconds(5)), POLICY.backoffAfter(4));
     }
 
+    /** Empty means stop, not "wait zero" — it is the only thing that ends a retry loop. */
     @Test
-    void hasNothingToOfferPastTheAttemptCap() {
-        assertEquals(Optional.empty(), POLICY.backoffBefore(5));
-        assertEquals(Optional.empty(), POLICY.backoffBefore(6));
+    void hasNothingToOfferOnceEveryAttemptIsSpent() {
+        assertEquals(Optional.empty(), POLICY.backoffAfter(5));
+        assertEquals(Optional.empty(), POLICY.backoffAfter(6));
     }
 
     /**
@@ -52,5 +53,8 @@ class RetryPolicyTest {
     @Test
     void defaultsSurviveAtLeastOneFailure() {
         assertTrue(RetryPolicy.defaults().maxAttempts() >= 2, "a single 503 must be survivable");
+        assertEquals(
+                Optional.of(RetryPolicy.defaults().initialBackoff()),
+                RetryPolicy.defaults().backoffAfter(1));
     }
 }

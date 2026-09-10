@@ -92,7 +92,7 @@ public class HubClient {
             HttpRequest request = HttpRequest.newBuilder()
                     .uri(URI.create(hubBaseUrl + path))
                     .header("Content-Type", "application/json")
-                    .POST(HttpRequest.BodyPublishers.ofString(sent))
+                    .POST(HttpRequest.BodyPublishers.ofString(sent, StandardCharsets.UTF_8))
                     .build();
 
             HttpResponse<String> response =

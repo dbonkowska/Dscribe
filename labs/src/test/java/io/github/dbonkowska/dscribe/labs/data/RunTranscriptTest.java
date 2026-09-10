@@ -11,7 +11,7 @@ import java.nio.file.Path;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.stream.Collectors;
+import io.github.dbonkowska.dscribe.labs.TestHeaders;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -329,9 +329,6 @@ class RunTranscriptTest {
     }
 
     private static HttpHeaders headers(Map<String, String> values) {
-        return HttpHeaders.of(
-                values.entrySet().stream().collect(
-                        Collectors.toMap(Map.Entry::getKey, entry -> List.of(entry.getValue()))),
-                (name, value) -> true);
+        return TestHeaders.of(values);
     }
 }

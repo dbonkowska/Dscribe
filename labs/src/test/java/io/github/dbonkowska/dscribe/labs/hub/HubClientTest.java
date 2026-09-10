@@ -44,7 +44,8 @@ class HubClientTest {
     record Probe(String question) {}
 
     private HttpServer server;
-    private String received;
+    /** Written on the server thread, read on the test thread. */
+    private volatile String received;
 
     @AfterEach
     void stopServer() {

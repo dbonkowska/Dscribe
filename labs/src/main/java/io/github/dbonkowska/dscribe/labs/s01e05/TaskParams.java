@@ -32,13 +32,12 @@ public record TaskParams(
      * Header names, most preferred first. Looked up case-insensitively, so they can be written
      * however the API documents them.
      *
-     * <p>Either list may be empty, and empty means "this API says nothing of the sort" rather
-     * than zero: an absent budget is never read as a spent one.
+     * <p>May be empty, and empty means "this API says nothing of the sort" rather than zero: an
+     * absent budget is never read as a spent one, it just means nothing to wait for.
      *
-     * @param resetHeaders     names that may carry when the budget refills
-     * @param remainingHeaders names that may carry how much of it is left
+     * @param resetHeaders names that may carry when the budget refills
      */
-    public record Limits(List<String> resetHeaders, List<String> remainingHeaders) {
+    public record Limits(List<String> resetHeaders) {
 
         /**
          * A list nobody wrote binds as null, and the difference between "no such key" and "no
@@ -47,7 +46,6 @@ public record TaskParams(
          */
         public Limits {
             resetHeaders = resetHeaders == null ? List.of() : List.copyOf(resetHeaders);
-            remainingHeaders = remainingHeaders == null ? List.of() : List.copyOf(remainingHeaders);
         }
     }
 

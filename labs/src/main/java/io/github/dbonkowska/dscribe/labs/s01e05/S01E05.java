@@ -94,8 +94,7 @@ public class S01E05 {
                     hub::send,
                     task.verifyTask(),
                     RetryPolicy.defaults(),
-                    new RateLimitHeaders(
-                            task.limits().resetHeaders(), task.limits().remainingHeaders(), MAX_WAIT),
+                    new RateLimitHeaders(task.limits().resetHeaders(), MAX_WAIT),
                     Sleeper.real(),
                     transcript);
 

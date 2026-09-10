@@ -1,11 +1,11 @@
 package io.github.dbonkowska.dscribe.labs.hub;
 
+import io.github.dbonkowska.dscribe.labs.TestHeaders;
 import io.github.dbonkowska.dscribe.labs.data.RunTranscript;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.io.IOException;
-import java.net.http.HttpHeaders;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -15,7 +15,6 @@ import java.util.ArrayList;
 import java.util.Deque;
 import java.util.List;
 import java.util.Map;
-import java.util.stream.Collectors;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -24,8 +23,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /**
  * The piece with no safe failure mode. Every way it goes wrong is quiet and expensive: giving up
  * one attempt early wastes everything the run already spent, retrying too eagerly earns the long
- * block the exercise warns about, and waiting after the last call instead of before the next one
- * looks correct while doing nothing at all.
+ * block the exercise warns about, and ignoring the number a refusal gave you earns it twice.
  *
  * <p>Driven by a fake sender and a recording sleeper, so the schedule is asserted as a list of
  * durations. Nothing here waits — a test that endured its own backoff would take a minute to say
@@ -41,8 +39,8 @@ class ResilientHubTest {
     private static final RetryPolicy POLICY =
             new RetryPolicy(4, Duration.ofSeconds(1), 2.0, Duration.ofSeconds(5));
 
-    private static final RateLimitHeaders LIMITS = new RateLimitHeaders(
-            List.of("X-Reset"), List.of("X-Remaining"), Duration.ofSeconds(60));
+    private static final RateLimitHeaders LIMITS =
+            new RateLimitHeaders(List.of("X-Reset"), Duration.ofSeconds(60));
 
     private final List<Duration> slept = new ArrayList<>();
 
@@ -54,9 +52,8 @@ class ResilientHubTest {
 
         assertEquals("{\"done\":true}", body);
         assertEquals(2, sender.labels.size(), "one retry, so two attempts");
-        // the first attempt goes out immediately, so the first wait taken is the one before #2
-        assertEquals(List.of(Duration.ofSeconds(2)), slept);
-        assertTrue(sender.labels.get(1).contains("2"), () -> sender.labels.toString());
+        assertEquals(List.of(Duration.ofSeconds(1)), slept);
+        assertEquals("probe · attempt 2", sender.labels.get(1));
     }
 
     /**
@@ -82,23 +79,9 @@ class ResilientHubTest {
     }
 
     /**
-     * The ordering that makes the whole thing worth having. Waiting after the last call would sit
-     * out a reset nobody is waiting on; the budget has to be repaid before the *next* request.
+     * The API this was built against attaches rate-limit headers only to refusals, so a run's
+     * successful calls go out back to back. Nothing waits on a limit nobody announced.
      */
-    @Test
-    void waitsOutASpentBudgetBeforeTheNextCallRatherThanAfterTheLast(@TempDir Path root) {
-        Sender sender = new Sender(
-                ok("{\"first\":true}", Map.of("X-Reset", "30", "X-Remaining", "0")),
-                ok("{\"second\":true}"));
-        ResilientHub hub = hub(sender, root);
-
-        hub.call("probe", Map.of("q", "x"));
-        assertEquals(List.of(), slept, "nothing waits on a reset after the last call");
-
-        hub.call("probe", Map.of("q", "y"));
-        assertEquals(List.of(Duration.ofSeconds(30)), slept, "the debt is paid before the next one");
-    }
-
     @Test
     void doesNotSleepWhenNothingReportsALimit(@TempDir Path root) {
         Sender sender = new Sender(ok("{\"first\":true}"), ok("{\"second\":true}"));
@@ -110,6 +93,18 @@ class ResilientHubTest {
         assertEquals(List.of(), slept, "an API that announces no budget is not waited on");
     }
 
+    /** A successful response is never waited on, whatever it happens to carry. */
+    @Test
+    void neverWaitsAfterACallThatSucceeded(@TempDir Path root) {
+        Sender sender = new Sender(ok("{\"first\":true}", Map.of("X-Reset", "30")), ok("{}"));
+        ResilientHub hub = hub(sender, root);
+
+        hub.call("probe", Map.of("q", "x"));
+        hub.call("probe", Map.of("q", "y"));
+
+        assertEquals(List.of(), slept, "the reset belongs to a refusal, not to a success");
+    }
+
     @Test
     void recordsEveryWaitInTheTranscript(@TempDir Path root) throws IOException {
         Sender sender = new Sender(failed(503), ok("{}"));
@@ -118,8 +113,8 @@ class ResilientHubTest {
         hub(sender, transcript).call("probe", Map.of("q", "x"));
 
         String written = Files.readString(transcript.file(), StandardCharsets.UTF_8);
-        assertTrue(written.contains("2"), () -> written);
-        assertTrue(written.toLowerCase().contains("wait"), "a run that sat idle has to say why");
+        assertTrue(written.contains("waited 1s"), () -> written);
+        assertTrue(written.contains("status 503 on attempt 1"), () -> written);
     }
 
     // --- fixtures -----------------------------------------------------------------------------
@@ -141,22 +136,15 @@ class ResilientHubTest {
     }
 
     private static HubResponse ok(String body, Map<String, String> headers) {
-        return new HubResponse(200, headers(headers), body);
+        return new HubResponse(200, TestHeaders.of(headers), body);
     }
 
     private static HubResponse failed(int status) {
-        return new HubResponse(status, headers(Map.of()), "{\"code\":-1}");
+        return new HubResponse(status, TestHeaders.of(Map.of()), "{\"code\":-1}");
     }
 
     private static HubResponse refused(Map<String, String> headers) {
-        return new HubResponse(429, headers(headers), "{\"code\":-429}");
-    }
-
-    private static HttpHeaders headers(Map<String, String> values) {
-        return HttpHeaders.of(
-                values.entrySet().stream().collect(
-                        Collectors.toMap(Map.Entry::getKey, entry -> List.of(entry.getValue()))),
-                (name, value) -> true);
+        return new HubResponse(429, TestHeaders.of(headers), "{\"code\":-429}");
     }
 
     /** Answers from a queue and keeps the label of every attempt it was asked for. */
