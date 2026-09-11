@@ -15,6 +15,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -126,6 +127,87 @@ class HubClientTest {
         assertTrue(received.contains("\"" + KEY + "\""), () -> received);
         assertTrue(received.contains("\"" + TASK + "\""), () -> received);
         assertTrue(received.contains("\"why\""), "the caller's answer travels under `answer`");
+    }
+
+    /**
+     * The other half of the caching rule. {@code fetchData} exists to *not* fetch twice, which
+     * every earlier lesson leans on; this lesson reads a file that changes underneath it, so the
+     * two must not be allowed to drift into each other. A `downloadData` that ever answered from
+     * memory would look correct on the first cycle of every run and be wrong on all the rest.
+     */
+    @Test
+    void returnsTheDataFileContentRatherThanAPath(@TempDir Path root) throws IOException {
+        serveData(200, "id,desc\n1,x");
+
+        assertEquals("id,desc\n1,x", served(root).downloadData("a.csv"));
+    }
+
+    @Test
+    void readsTheFileAgainEveryTimeRatherThanRememberingIt(@TempDir Path root) throws IOException {
+        serveData(200, "first", "second");
+        HubClient hub = served(root);
+
+        assertEquals("first", hub.downloadData("a.csv"));
+        assertEquals("second", hub.downloadData("a.csv"),
+                "the input rotates; a cached read would never see the change");
+    }
+
+    /**
+     * Weaker than it looks on a modern JDK, where the default charset is already UTF-8 — kept
+     * because the principle is that the charset is *named*, and a future reader changing this
+     * method has no other signal that the bytes are not ASCII.
+     */
+    @Test
+    void decodesTheDataFileAsUtf8(@TempDir Path root) throws IOException {
+        serveData(200, "id,desc\n1,zażółć gęślą jaźń");
+
+        assertTrue(served(root).downloadData("a.csv").contains("zażółć gęślą jaźń"));
+    }
+
+    @Test
+    void keepsTheKeyOutOfWhatItThrowsWhenTheDataFileIsMissing(@TempDir Path root) throws IOException {
+        serveData(404, "no such file");
+
+        RuntimeException thrown =
+                assertThrows(RuntimeException.class, () -> served(root).downloadData("a.csv"));
+
+        assertTrue(thrown.getMessage().contains("/data/***/a.csv"), thrown::getMessage);
+        assertFalse(thrown.getMessage().contains(KEY), thrown::getMessage);
+    }
+
+    /**
+     * The content rotates, so a cycle that failed cannot be explained after the fact unless what
+     * it read is in the file alongside what it sent.
+     */
+    @Test
+    void recordsTheDownloadInTheTranscriptWithoutTheKey(@TempDir Path root) throws IOException {
+        serveData(200, "id,desc\n1,x");
+        RunTranscript transcript = transcript(root);
+
+        hub(transcript).downloadData("a.csv");
+
+        String written = Files.readString(transcript.file(), StandardCharsets.UTF_8);
+        assertTrue(written.contains("1,x"), () -> written);
+        assertTrue(written.contains("a.csv"), () -> written);
+        assertFalse(written.contains(KEY), "the key must never reach disk");
+    }
+
+    /**
+     * Serves the keyed data path, handing out each body in turn and repeating the last — so a
+     * second read can legitimately differ from the first.
+     */
+    private void serveData(int status, String... bodies) throws IOException {
+        server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        AtomicInteger calls = new AtomicInteger();
+        server.createContext("/data/" + KEY + "/", exchange -> {
+            byte[] out = bodies[Math.min(calls.getAndIncrement(), bodies.length - 1)]
+                    .getBytes(StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(status, out.length);
+            try (OutputStream sink = exchange.getResponseBody()) {
+                sink.write(out);
+            }
+        });
+        server.start();
     }
 
     /** Captures what arrived, so the request the caller never assembled by hand is assertable. */

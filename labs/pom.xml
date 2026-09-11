@@ -29,6 +29,23 @@
             <version>1.12.0</version>
         </dependency>
         <!--
+            BPE tokenizer for OpenAI encodings — the JVM's answer to tiktoken. Used to measure a
+            prompt locally before an external judge is asked to, so an over-long one costs a model
+            iteration instead of a request budget. Zero transitive dependencies.
+
+            1.1.0 is July 2024 and the newest published: `o200k_harmony`, the encoding the current
+            model family actually uses, exists only as unmerged pull requests upstream. We measure
+            with `o200k_base`, which shares the same base merge table and differs in special tokens
+            for the chat envelope — which a bare prompt string never carries. The judge stays the
+            authority; this is a cheap guard, not a prediction of its arithmetic.
+        -->
+        <dependency>
+            <groupId>com.knuddels</groupId>
+            <artifactId>jtokkit</artifactId>
+            <version>1.1.0</version>
+        </dependency>
+
+        <!--
             Binds a lesson's task.properties straight to a record, so each new lesson
             costs one record declaration instead of a hand-written parse method.
             Same Jackson version as llm-core's databind.

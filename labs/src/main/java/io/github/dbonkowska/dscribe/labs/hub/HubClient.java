@@ -42,6 +42,48 @@ public class HubClient {
         return fetch(hubBaseUrl + "/data/" + hubApiKey + "/" + filename, destination);
     }
 
+    /**
+     * Reads one of the hub's data files and hands back its content, never touching the disk.
+     *
+     * <p>The counterpart to {@link #fetchData} rather than a replacement for it. That one exists
+     * in order *not* to fetch twice, and every earlier lesson leans on the cache; this one is for
+     * an input that changes underneath the run, where a cached read is silently right on the first
+     * cycle and wrong on every one after. A {@code refresh} flag on the other would have put cache
+     * invalidation into the method whose entire value is having none.
+     *
+     * <p>Recorded like any other hub exchange, and for the same reason the failed attempts are:
+     * the content rotates, so a cycle that went wrong cannot be explained afterwards unless what
+     * it read is in the file next to what it sent.
+     */
+    public String downloadData(String filename) {
+        String url = hubBaseUrl + "/data/" + hubApiKey + "/" + filename;
+        try {
+            HttpRequest request = HttpRequest.newBuilder().uri(URI.create(url)).GET().build();
+            HttpResponse<byte[]> response =
+                    http.send(request, HttpResponse.BodyHandlers.ofByteArray());
+
+            // named rather than defaulted — a platform charset mangles accented text silently
+            String body = new String(response.body(), StandardCharsets.UTF_8);
+
+            // written before the status is looked at, like every other exchange recorded here
+            transcript.hubCall(
+                    "data · " + filename,
+                    redacted(url),
+                    response.statusCode(),
+                    response.headers(),
+                    "",
+                    body);
+
+            if (response.statusCode() != 200) {
+                throw new RuntimeException(
+                        "Data download failed [" + response.statusCode() + "]: " + redacted(url));
+            }
+            return body;
+        } catch (InterruptedException | IOException e) {
+            throw new RuntimeException("Data download failed: " + redacted(url), e);
+        }
+    }
+
     public Path fetch(String url, Path localPath) {
         if (Files.exists(localPath)) {
             return localPath;
