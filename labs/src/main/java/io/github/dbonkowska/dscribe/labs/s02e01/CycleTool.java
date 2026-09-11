@@ -4,14 +4,9 @@ import io.github.dbonkowska.dscribe.labs.hub.HubClient;
 import io.github.dbonkowska.dscribe.labs.hub.ResilientHub;
 import io.github.dbonkowska.dscribe.tool.Tool;
 import io.github.dbonkowska.dscribe.tool.ToolOutput;
-import org.apache.commons.csv.CSVFormat;
-import org.apache.commons.csv.CSVRecord;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.IOException;
-import java.io.StringReader;
-import java.io.UncheckedIOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.regex.Matcher;
@@ -81,11 +76,11 @@ final class CycleTool {
         // sent once per row, identical every time, and rejected far downstream of the mistake
         rendering.requirePlaceholders(template);
 
-        List<Item> items = parse(client.downloadData(spec.dataFile()));
+        List<Item> items = Rows.parse(
+                client.downloadData(spec.dataFile()), spec.idColumn(), spec.descriptionColumn());
         log.info("cycle over {} row(s)", items.size());
 
         int submitted = 0;
-        int accepted = 0;
         String ending = null;
         String flag = null;
 
@@ -101,11 +96,11 @@ final class CycleTool {
                 log.info("  row {} -> {}", item.id(), oneLine(response));
 
                 if (spec.failure().matcher(response).find()) {
-                    // the rest are not sent: the budget is shared across the cycle, and a
-                    // candidate already known to be wrong buys nothing by being asked again
+                    // The rest are not sent, and the runs show why that is not merely thrift: one
+                    // wrong classification zeroes the judge's balance and its progress counter
+                    // together. Everything after it would submit into a dead session.
                     break;
                 }
-                accepted++;
 
                 Matcher found = spec.flag().matcher(response);
                 if (found.find()) {
@@ -117,7 +112,7 @@ final class CycleTool {
             reset();
         }
 
-        return ToolOutput.of(new Verdict(submitted, accepted, ending, flag));
+        return ToolOutput.of(new Verdict(submitted, ending, flag));
     }
 
     /**
@@ -135,24 +130,6 @@ final class CycleTool {
         } catch (RuntimeException e) {
             log.warn("reset failed, the next cycle may start dirty: {}", e.getMessage());
         }
-    }
-
-    /** Column names are the exercise's, so they arrive in the spec rather than being written here. */
-    private List<Item> parse(String csv) {
-        List<Item> items = new ArrayList<>();
-        try (var parser = CSVFormat.DEFAULT.builder()
-                .setHeader()
-                .setSkipHeaderRecord(true)
-                .build()
-                .parse(new StringReader(csv))) {
-
-            for (CSVRecord record : parser) {
-                items.add(new Item(record.get(spec.idColumn()), record.get(spec.descriptionColumn())));
-            }
-        } catch (IOException e) {
-            throw new UncheckedIOException("Cannot read the downloaded rows", e);
-        }
-        return items;
     }
 
     private static String oneLine(String text) {

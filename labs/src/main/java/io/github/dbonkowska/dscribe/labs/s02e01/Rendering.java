@@ -32,6 +32,18 @@ final class Rendering {
     }
 
     /**
+     * The limit a rendered prompt is actually held to.
+     *
+     * <p>Exposed because the model has to be told it. The first run spent its opening round
+     * discovering the limit by being refused, which is a round bought for nothing — and the
+     * number it needs is this one, not the lesson's raw cap, so it is read from here rather than
+     * recomputed anywhere the two could drift apart.
+     */
+    int effectiveCap() {
+        return effectiveCap;
+    }
+
+    /**
      * Checked before a cycle spends anything — a template with nowhere to put a row would
      * otherwise be sent once per row, identical every time, and rejected on its own merits far
      * downstream of the actual mistake.

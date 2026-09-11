@@ -69,6 +69,15 @@ class RenderingTest {
     }
 
     /**
+     * The number reaches the model, inside the tool's description, so a wrong one does not merely
+     * mis-guard — it tells the model to aim at a size that is not the one being enforced.
+     */
+    @Test
+    void reportsTheCapItActuallyEnforces() {
+        assertEquals(95, new Rendering(ID, DESC, 100, 5).effectiveCap());
+    }
+
+    /**
      * The direction most likely to be got backwards. A margin that widened the cap would make the
      * guard weaker exactly where it was meant to be more cautious.
      */
