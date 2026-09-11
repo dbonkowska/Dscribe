@@ -55,7 +55,40 @@ public record TaskParams(
      * @param margin                 tokens held back from the cap, absorbing the difference
      *                               between our encoding and the judge's
      */
-    public record Prompt(String idPlaceholder, String descriptionPlaceholder, int cap, int margin) {}
+    public record Prompt(String idPlaceholder, String descriptionPlaceholder, int cap, int margin) {
+
+        /**
+         * Refused here, at the binding boundary, because of where the alternative surfaces.
+         *
+         * <p>{@code cap} is a primitive, so a key nobody wrote binds to zero instead of failing.
+         * The effective cap then becomes {@code 0 - margin} and every candidate is refused for
+         * exceeding a negative number — as a tool result, which the model reads as its own
+         * mistake and answers by shortening, forever. That is the same unsatisfiable loop a wrong
+         * column name once produced, and nothing in it names a file anyone could edit.
+         *
+         * <p>Throwing here puts it before the transcript is even open, where the message is read
+         * by whoever can act on it.
+         */
+        public Prompt {
+            if (cap <= 0) {
+                throw new IllegalStateException(
+                        "prompt.cap must be a positive number of tokens, not " + cap
+                                + " — a key that was never written binds to 0. Set it in the"
+                                + " lesson's task.properties.");
+            }
+            if (margin < 0) {
+                throw new IllegalStateException(
+                        "prompt.margin cannot be negative, and " + margin + " is. It is held back"
+                                + " from prompt.cap, never added to it.");
+            }
+            if (margin >= cap) {
+                throw new IllegalStateException(
+                        "prompt.margin (" + margin + ") must be smaller than prompt.cap (" + cap
+                                + "): the margin is held back from the cap, so nothing could ever"
+                                + " be short enough to send.");
+            }
+        }
+    }
 
     /**
      * Header names, most preferred first. Looked up case-insensitively, so they can be written

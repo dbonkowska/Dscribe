@@ -18,7 +18,8 @@ package io.github.dbonkowska.dscribe.labs.s02e01;
  * {@code submitted} already says where it stopped.
  *
  * @param submitted  rows sent before the cycle ended; the last of them is the one that ended it
- * @param hubMessage the response that ended the cycle, as it arrived
+ * @param hubMessage the last response the cycle received, as it arrived — the one that ended it
+ *                   where something did, and simply the final row's where every row passed
  * @param flag       the result, if this cycle produced one; null otherwise
  */
 record Verdict(int submitted, String hubMessage, String flag) {}

@@ -120,10 +120,16 @@ public class S02E01 {
             // rewrites its prompt around them, which the placeholder check then rejects. That
             // pair is unsatisfiable and cost two killed runs before this guard existed.
             // A download, and nothing from the submission budget.
-            Rows.parse(
+            List<Item> rows = Rows.parse(
                     hub.downloadData(task.data().file()),
                     task.data().idColumn(),
                     task.data().descriptionColumn());
+
+            if (rows.isEmpty()) {
+                throw new IllegalStateException(
+                        "The downloaded file " + task.data().file() + " has headers but no rows,"
+                                + " so there is nothing for a candidate to be judged against.");
+            }
 
             // the description carries one %d: the size a rendered prompt is actually held to.
             // Filled from Rendering so the number the model is told and the number enforced are

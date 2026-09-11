@@ -80,15 +80,35 @@ final class CycleTool {
                 client.downloadData(spec.dataFile()), spec.idColumn(), spec.descriptionColumn());
         log.info("cycle over {} row(s)", items.size());
 
+        if (items.isEmpty()) {
+            // Reachable: a file of headers and nothing else parses fine. Returning the bare
+            // Verdict(0, null, null) would say nothing at all — no rows, no message, no way to
+            // tell "there was nothing to send" from "something failed quietly".
+            return ToolOutput.of(new Verdict(
+                    0, "The downloaded file had no rows, so nothing was sent.", null));
+        }
+
+        // Rendered in full before anything is sent. Row descriptions differ in length, so a
+        // candidate can fit for the first four rows and not the fifth — and rendering inside the
+        // submission loop meant discovering that after four rows were already paid for, with the
+        // throw escaping before any Verdict was built. The model would read a size complaint and
+        // nothing about what it had just spent. Rendering is pure and costs a dozen token counts,
+        // so doing it all up front makes the check total as well: a candidate that is over cap
+        // only on the last row is now caught before the first submission rather than never.
+        List<String> prompts = new ArrayList<>(items.size());
+        for (Item item : items) {
+            prompts.add(rendering.render(template, item));
+        }
+
         int submitted = 0;
         String ending = null;
         String flag = null;
 
         try {
-            for (Item item : items) {
-                String prompt = rendering.render(template, item);
+            for (int row = 0; row < items.size(); row++) {
+                Item item = items.get(row);
 
-                String response = hub.call("row " + item.id(), new Submission(prompt));
+                String response = hub.call("row " + item.id(), new Submission(prompts.get(row)));
                 responses.add(response);
                 submitted++;
                 ending = response;
