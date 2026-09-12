@@ -17,6 +17,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -193,15 +194,76 @@ class HubClientTest {
     }
 
     /**
+     * The binary counterpart. An artefact the run looks at rather than reads — an image, say —
+     * cannot survive being decoded on the way through, and a body that changes between reads is
+     * the reason this method exists at all rather than {@code fetchData}.
+     */
+    @Test
+    void returnsTheDataFileBytesExactlyAsTheyArrived(@TempDir Path root) throws IOException {
+        // 0x00 and 0xFF are the two a decode-then-re-encode round trip cannot survive
+        byte[] binary = {0x00, (byte) 0x89, 0x50, 0x4E, 0x47, (byte) 0xFF, 0x0A};
+        serveBytes(200, binary);
+
+        assertArrayEquals(binary, served(root).downloadBytes("a.png"));
+    }
+
+    @Test
+    void readsTheBytesAgainEveryTimeRatherThanRememberingThem(@TempDir Path root) throws IOException {
+        serveBytes(200, new byte[] {1}, new byte[] {2});
+        HubClient hub = served(root);
+
+        assertArrayEquals(new byte[] {1}, hub.downloadBytes("a.png"));
+        assertArrayEquals(new byte[] {2}, hub.downloadBytes("a.png"),
+                "the artefact changes underneath the run; a cached read would never see it");
+    }
+
+    /**
+     * The one place this differs from {@code downloadData}, which writes what it read. An image
+     * body is megabytes of binary: written into the transcript it would bury every exchange
+     * around it, and the transcript's whole value is being readable afterwards.
+     */
+    @Test
+    void recordsTheSizeOfABinaryDownloadRatherThanItsBytes(@TempDir Path root) throws IOException {
+        serveBytes(200, "MARKER-NOT-FOR-THE-FILE".getBytes(StandardCharsets.UTF_8));
+        RunTranscript transcript = transcript(root);
+
+        hub(transcript).downloadBytes("a.png");
+
+        String written = Files.readString(transcript.file(), StandardCharsets.UTF_8);
+        assertTrue(written.contains("a.png"), () -> written);
+        assertTrue(written.contains("23 bytes"), () -> written);
+        assertFalse(written.contains("MARKER-NOT-FOR-THE-FILE"), "the body must not reach the file");
+        assertFalse(written.contains(KEY), "the key must never reach disk");
+    }
+
+    @Test
+    void keepsTheKeyOutOfWhatItThrowsWhenTheBytesAreMissing(@TempDir Path root) throws IOException {
+        serveBytes(404, "no such file".getBytes(StandardCharsets.UTF_8));
+
+        RuntimeException thrown =
+                assertThrows(RuntimeException.class, () -> served(root).downloadBytes("a.png"));
+
+        assertTrue(thrown.getMessage().contains("/data/***/a.png"), thrown::getMessage);
+        assertFalse(thrown.getMessage().contains(KEY), thrown::getMessage);
+    }
+
+    /**
      * Serves the keyed data path, handing out each body in turn and repeating the last — so a
      * second read can legitimately differ from the first.
      */
     private void serveData(int status, String... bodies) throws IOException {
+        byte[][] encoded = new byte[bodies.length][];
+        for (int i = 0; i < bodies.length; i++) {
+            encoded[i] = bodies[i].getBytes(StandardCharsets.UTF_8);
+        }
+        serveBytes(status, encoded);
+    }
+
+    private void serveBytes(int status, byte[]... bodies) throws IOException {
         server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         AtomicInteger calls = new AtomicInteger();
         server.createContext("/data/" + KEY + "/", exchange -> {
-            byte[] out = bodies[Math.min(calls.getAndIncrement(), bodies.length - 1)]
-                    .getBytes(StandardCharsets.UTF_8);
+            byte[] out = bodies[Math.min(calls.getAndIncrement(), bodies.length - 1)];
             exchange.sendResponseHeaders(status, out.length);
             try (OutputStream sink = exchange.getResponseBody()) {
                 sink.write(out);

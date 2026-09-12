@@ -84,6 +84,48 @@ public class HubClient {
         }
     }
 
+    /**
+     * Reads one of the hub's data files as bytes, never touching the disk and never decoding.
+     *
+     * <p>The binary sibling of {@link #downloadData}, and separate from it for the same reason
+     * that one is separate from {@link #fetchData}: an artefact the run *looks at* rather than
+     * reads cannot survive a decode, and one whose bytes change underneath the run cannot
+     * survive a cache. Text and bytes are kept apart rather than unified behind a flag, because
+     * the only thing they would share is the URL.
+     *
+     * <p>Recorded like every other exchange, but by size rather than by content — an image body
+     * written whole would bury the exchanges around it, and the transcript is worth having only
+     * while it stays readable. What it read is recoverable from the artefact itself; what it
+     * sent, and when, is not.
+     */
+    public byte[] downloadBytes(String filename) {
+        String url = hubBaseUrl + "/data/" + hubApiKey + "/" + filename;
+        try {
+            HttpRequest request = HttpRequest.newBuilder().uri(URI.create(url)).GET().build();
+            HttpResponse<byte[]> response =
+                    http.send(request, HttpResponse.BodyHandlers.ofByteArray());
+
+            byte[] body = response.body();
+
+            // written before the status is looked at, like every other exchange recorded here
+            transcript.hubCall(
+                    "data · " + filename,
+                    redacted(url),
+                    response.statusCode(),
+                    response.headers(),
+                    "",
+                    "<" + body.length + " bytes>");
+
+            if (response.statusCode() != 200) {
+                throw new RuntimeException(
+                        "Data download failed [" + response.statusCode() + "]: " + redacted(url));
+            }
+            return body;
+        } catch (InterruptedException | IOException e) {
+            throw new RuntimeException("Data download failed: " + redacted(url), e);
+        }
+    }
+
     public Path fetch(String url, Path localPath) {
         if (Files.exists(localPath)) {
             return localPath;
