@@ -19,6 +19,7 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Pattern;
 
 /**
  * One run's record: what the model was sent, what it answered, what the hub was asked, and how
@@ -35,6 +36,10 @@ public final class RunTranscript implements Transcript, AutoCloseable {
     private static final ObjectMapper MAPPER = JsonMapper.builder()
             .disable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
             .build();
+
+    /** A data URI's media type and its payload — the shape {@code ContentPart.image} produces. */
+    private static final Pattern DATA_URI =
+            Pattern.compile("data:([\\w.+-]+/[\\w.+-]+);base64,([A-Za-z0-9+/]+={0,2})");
 
     private static final DateTimeFormatter STAMP = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH-mm-ss");
     private static final DateTimeFormatter READABLE = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
@@ -178,11 +183,38 @@ public final class RunTranscript implements Transcript, AutoCloseable {
             quote(block, back.at("/choices/0/message/content").asString(""));
 
             block.append("<details><summary>raw exchange</summary>\n\n")
-                    .append("```json\n").append(request.strip()).append("\n```\n\n")
+                    .append("```json\n").append(elided(request.strip())).append("\n```\n\n")
                     .append("```json\n").append(response.strip()).append("\n```\n</details>\n");
 
             write(block.toString());
         };
+    }
+
+    /**
+     * A base64 image payload, replaced by its size.
+     *
+     * <p>Only on the delegated path. {@link #append}'s raw blocks stay verbatim, which is the
+     * older and stronger guarantee: a serialisation fault has to show up exactly as it went over
+     * the wire. Nothing sends an inline image through there, so nothing is given up by leaving
+     * it alone.
+     *
+     * <p>What is lost here is recoverable — the artefact is still on the hub, and still on disk
+     * if the run kept it. What would be lost by writing it whole is not: a megabyte of base64 in
+     * every request that shows the image makes the surrounding exchanges unreadable, and being
+     * readable afterwards is the entire value of this file.
+     *
+     * <p>The size is the decoded length, computed from the encoding rather than by decoding —
+     * the payload is already the largest thing in memory and does not need a second copy just to
+     * be counted.
+     */
+    static String elided(String json) {
+        return DATA_URI.matcher(json).replaceAll(match ->
+                "data:" + match.group(1) + ";base64, <" + decodedLength(match.group(2)) + " bytes elided>");
+    }
+
+    private static int decodedLength(String base64) {
+        int padding = base64.endsWith("==") ? 2 : base64.endsWith("=") ? 1 : 0;
+        return base64.length() / 4 * 3 - padding;
     }
 
     /**

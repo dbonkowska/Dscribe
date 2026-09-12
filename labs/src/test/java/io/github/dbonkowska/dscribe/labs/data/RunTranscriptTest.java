@@ -8,6 +8,7 @@ import java.net.http.HttpHeaders;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -293,6 +294,40 @@ class RunTranscriptTest {
         assertTrue(written.contains("> describe it"), () -> written);
         assertTrue(written.contains("> look"), () -> written);
         assertTrue(written.contains("> it reads as x"), () -> written);
+    }
+
+    private static String delegatedRequestShowing(String url) {
+        return "{\"model\":\"vision/model\",\"messages\":[{\"role\":\"user\",\"content\":["
+                + "{\"type\":\"image_url\",\"image_url\":{\"url\":\"" + url + "\"}}]}]}";
+    }
+
+    /**
+     * An inline image is the one payload that can destroy this file's reason for existing. An
+     * image of a few hundred kilobytes becomes a megabyte of base64 in every request that shows
+     * it, and a transcript nobody can scroll through is worth about as much as no transcript.
+     */
+    @Test
+    void elidesAnEncodedImagePayloadRatherThanWritingItWhole() throws IOException {
+        String payload = Base64.getEncoder().encodeToString(new byte[300]);
+        RunTranscript transcript = open(root());
+
+        transcript.delegated("vision")
+                .append(delegatedRequestShowing("data:image/png;base64," + payload), DELEGATED_RESPONSE);
+
+        String written = contents(transcript);
+        assertTrue(written.contains("data:image/png;base64, <300 bytes elided>"), () -> written);
+        assertFalse(written.contains(payload), "the payload must not reach the file");
+    }
+
+    @Test
+    void leavesAnOrdinaryImageUrlInTheRecordUntouched() throws IOException {
+        // a URL is short, and it is the only handle anyone reading the file has on the image
+        RunTranscript transcript = open(root());
+
+        transcript.delegated("vision")
+                .append(delegatedRequestShowing("https://e/x.png"), DELEGATED_RESPONSE);
+
+        assertTrue(contents(transcript).contains("https://e/x.png"), "expected the url kept");
     }
 
     @Test
