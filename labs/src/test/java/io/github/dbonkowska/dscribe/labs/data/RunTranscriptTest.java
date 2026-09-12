@@ -213,6 +213,88 @@ class RunTranscriptTest {
         assertTrue(written.contains("> 42"), () -> written);
     }
 
+    private static final String DELEGATED_REQUEST =
+            "{\"model\":\"vision/model\",\"messages\":["
+                    + "{\"role\":\"system\",\"content\":\"describe it\"},"
+                    + "{\"role\":\"user\",\"content\":\"look\"}]}";
+
+    private static final String DELEGATED_RESPONSE =
+            "{\"model\":\"vision/model\",\"choices\":[{\"finish_reason\":\"stop\","
+                    + "\"message\":{\"role\":\"assistant\",\"content\":\"it reads as x\"}}]}";
+
+    private static String toolTurn(String id, String content) {
+        return "{\"role\":\"assistant\",\"content\":null},"
+                + "{\"role\":\"tool\",\"tool_call_id\":\"" + id + "\",\"content\":\"" + content + "\"}";
+    }
+
+    /**
+     * Two main turns, a delegated exchange, then a third main turn.
+     *
+     * <p>The second main turn is what makes this sequence able to fail. A delegated call carries
+     * two messages; by the time it happens the main conversation has rendered three, so a shared
+     * cursor is dragged *backwards* and the next main turn re-renders what it already wrote. With
+     * only one main turn first the cursor moves forward by one and the damage is invisible —
+     * which it was, in the first version of these tests.
+     */
+    private RunTranscript interleaved() {
+        RunTranscript transcript = open(root());
+        String seed = "{\"role\":\"user\",\"content\":\"first\"}";
+        String second = seed + "," + toolTurn("call_1", "42");
+        String third = second + "," + toolTurn("call_2", "99");
+
+        transcript.append(request(seed), TOOL_CALL_RESPONSE);
+        transcript.append(request(second), TOOL_CALL_RESPONSE);
+        transcript.delegated("vision").append(DELEGATED_REQUEST, DELEGATED_RESPONSE);
+        transcript.append(request(third), TEXT_RESPONSE);
+
+        return transcript;
+    }
+
+    @Test
+    void recordsADelegatedExchangeUnderTheTurnThatCausedIt() throws IOException {
+        String written = contents(interleaved());
+
+        int cause = written.indexOf("## turn 2 · model");
+        int delegated = written.indexOf("## turn 2 · vision · vision/model");
+        int next = written.indexOf("## turn 3 · model");
+
+        assertTrue(delegated >= 0, () -> written);
+        assertTrue(delegated > cause, "the delegated block belongs under the turn that caused it");
+        assertTrue(next > delegated, "and before the turn that read its result");
+    }
+
+    /**
+     * The reason this is a second rendering path rather than a second caller of {@code append}.
+     * That method keeps a cursor over one growing conversation; a delegated exchange is a
+     * different, shorter conversation, and sharing the cursor rewinds it — after which the main
+     * loop's new messages are skipped and never appear in the file at all.
+     */
+    @Test
+    void leavesTheMainConversationsRenderingCursorAlone() throws IOException {
+        String written = contents(interleaved());
+
+        // dragged backwards: the turn after re-renders what it already wrote
+        assertEquals(1, written.split("> first", -1).length - 1,
+                () -> "the seed must be rendered exactly once: " + written);
+        assertEquals(1, written.split("> 42", -1).length - 1,
+                () -> "an already-written result must not be rendered a second time: " + written);
+        // dragged forwards: the turn after is skipped entirely
+        assertTrue(written.contains("> 99"),
+                "the turn after a delegated exchange must still be rendered");
+    }
+
+    @Test
+    void showsWhatTheDelegatedCallWasAskedAndWhatItAnswered() throws IOException {
+        RunTranscript transcript = open(root());
+
+        transcript.delegated("vision").append(DELEGATED_REQUEST, DELEGATED_RESPONSE);
+
+        String written = contents(transcript);
+        assertTrue(written.contains("> describe it"), () -> written);
+        assertTrue(written.contains("> look"), () -> written);
+        assertTrue(written.contains("> it reads as x"), () -> written);
+    }
+
     @Test
     void keepsBothRawHalvesVerbatim() throws IOException {
         RunTranscript transcript = open(root());

@@ -150,6 +150,42 @@ public final class RunTranscript implements Transcript, AutoCloseable {
     }
 
     /**
+     * A sink for an exchange made beside the run's own conversation — a call a tool delegates to
+     * a second model — writing into this same file under the turn that caused it.
+     *
+     * <p>A separate rendering path rather than another caller of {@link #append}, and the reason
+     * is {@link #rendered}. That cursor counts how much of *one* growing conversation has already
+     * been written, so each turn shows only what is new. A second, shorter conversation sharing
+     * it rewinds the count, and every message the main loop adds past that point is then treated
+     * as already-written and silently never appears. The corruption is invisible in the file that
+     * would be used to notice it.
+     *
+     * <p>Nothing here is incremental, because a delegated call is not a conversation: it is one
+     * exchange, whole, and the next one starts again from nothing. So it needs no cursor, and it
+     * leaves {@link #turn} alone too — the heading borrows the current turn number rather than
+     * claiming one, which is what puts it visibly underneath its cause.
+     */
+    public Transcript delegated(String label) {
+        return (request, response) -> {
+            JsonNode sent = read(request);
+            JsonNode back = read(response);
+
+            StringBuilder block = new StringBuilder("\n## turn ").append(turn)
+                    .append(" · ").append(label).append(served(sent, back)).append("\n\n");
+
+            sent.path("messages").forEach(message -> conversation(block, message));
+
+            quote(block, back.at("/choices/0/message/content").asString(""));
+
+            block.append("<details><summary>raw exchange</summary>\n\n")
+                    .append("```json\n").append(request.strip()).append("\n```\n\n")
+                    .append("```json\n").append(response.strip()).append("\n```\n</details>\n");
+
+            write(block.toString());
+        };
+    }
+
+    /**
      * Which model answered, for the heading — the response's own word for it, falling back to
      * what the request asked for.
      *
