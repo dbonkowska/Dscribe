@@ -114,7 +114,8 @@ public final class RunTranscript implements Transcript, AutoCloseable {
         JsonNode back = read(response);
         JsonNode messages = sent.path("messages");
 
-        StringBuilder block = new StringBuilder("\n## turn ").append(turn).append(" · model\n\n")
+        StringBuilder block = new StringBuilder("\n## turn ").append(turn).append(" · model")
+                .append(served(sent, back)).append("\n\n")
                 .append(skim(back)).append("\n\n");
 
         // whatever the model wrote in its own voice this turn — the skim line above names only its
@@ -146,6 +147,27 @@ public final class RunTranscript implements Transcript, AutoCloseable {
                 .append("```json\n").append(response.strip()).append("\n```\n");
 
         write(block.toString());
+    }
+
+    /**
+     * Which model answered, for the heading — the response's own word for it, falling back to
+     * what the request asked for.
+     *
+     * <p>The response wins because a provider may route elsewhere than it was asked, and the
+     * model that actually answered is the one a bad turn should be attributed to. It matters now
+     * that a run can use more than one: a delegated read and the planning turn that asked for it
+     * sit next to each other in this file, and without a name on each the reader cannot tell
+     * which of the two reasoned badly.
+     *
+     * <p>Empty when neither half names one, so a payload that could not be parsed still gets a
+     * heading rather than the word "null".
+     */
+    private static String served(JsonNode request, JsonNode response) {
+        String model = response.path("model").asString("");
+        if (model.isBlank()) {
+            model = request.path("model").asString("");
+        }
+        return model.isBlank() ? "" : " · " + model;
     }
 
     /** What the model did this turn, in one line — the layer you read top to bottom. */

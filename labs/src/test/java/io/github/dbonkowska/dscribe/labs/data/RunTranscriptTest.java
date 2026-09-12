@@ -142,6 +142,37 @@ class RunTranscriptTest {
         assertTrue(written.contains("lookup {\"q\":\"x\"}"), () -> written);
     }
 
+    /**
+     * A run now talks to more than one model, so a turn that does not say which one served it
+     * leaves the file ambiguous exactly where it matters — a delegated read and the planning
+     * turn that asked for it sit next to each other.
+     */
+    @Test
+    void namesTheModelThatActuallyServedTheTurn() throws IOException {
+        // the provider can route elsewhere than the request asked, and what answered is the fact
+        // worth keeping: a run that reads badly is otherwise blamed on the model nobody called
+        RunTranscript transcript = open(root());
+
+        transcript.append(
+                "{\"model\":\"asked/model\",\"messages\":[{\"role\":\"user\",\"content\":\"go\"}],"
+                        + "\"tools\":[]}",
+                "{\"model\":\"served/model\",\"choices\":[{\"finish_reason\":\"stop\","
+                        + "\"message\":{\"role\":\"assistant\",\"content\":\"ok\"}}]}");
+
+        String written = contents(transcript);
+        assertTrue(written.contains("## turn 1 · model · served/model"), () -> written);
+    }
+
+    @Test
+    void fallsBackToTheModelItAskedForWhenTheResponseNamesNone() throws IOException {
+        RunTranscript transcript = open(root());
+
+        transcript.append(request("{\"role\":\"user\",\"content\":\"go\"}"), TEXT_RESPONSE);
+
+        String written = contents(transcript);
+        assertTrue(written.contains("## turn 1 · model · some/model"), () -> written);
+    }
+
     @Test
     void marksATurnThatProducedNoToolCalls() throws IOException {
         RunTranscript transcript = open(root());
