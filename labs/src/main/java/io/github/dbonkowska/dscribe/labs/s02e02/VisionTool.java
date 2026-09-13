@@ -40,8 +40,9 @@ final class VisionTool {
      * @param mediaType   what those bytes are, for the provider — the exercise's format, so it is
      *                    supplied rather than guessed from the name
      * @param targetImage a static image of the state being worked towards, shown alongside the
-     *                    current one. Null or blank when the target is described in words
-     *                    instead, which is the cheaper option and the one to start from
+     *                    current one. Null when the target is described in words instead, which
+     *                    is the cheaper option and the one to start from — {@code TaskParams}
+     *                    has already turned a blank key into null
      */
     record Spec(String dataFile, String mediaType, String targetImage) {}
 
@@ -83,7 +84,7 @@ final class VisionTool {
         // by URL, deliberately, where the other is by content. This one is static: it cannot have
         // changed between the decision to show it and the provider fetching it, which is the only
         // thing inline bytes buy. A link costs nothing per call and keeps the record readable.
-        if (shown(spec.targetImage())) {
+        if (spec.targetImage() != null) {
             parts.add(ContentPart.image(spec.targetImage()));
         }
 
@@ -94,10 +95,5 @@ final class VisionTool {
         // nulls rather than an empty list: this asks for prose, and a request carrying
         // "tools": [] with a tool_choice is a different thing to answer
         return ToolOutput.of(llm.send(conversation, null, null).message().text());
-    }
-
-    /** Blank counts as absent, as it does everywhere a value arrives from configuration. */
-    private static boolean shown(String url) {
-        return url != null && !url.isBlank();
     }
 }

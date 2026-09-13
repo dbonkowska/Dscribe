@@ -73,9 +73,28 @@ public record TaskParams(
         }
         positions = List.copyOf(positions);
 
+        // Each of these binds to null when missing and fails far from here: the startup reset
+        // silently fetches the current state instead, every move throws after it has already been
+        // counted, or the run dies after the result was earned. Blank counts as missing.
+        require(verifyTask, "verifyTask");
+        require(flagPattern, "flagPattern");
+        require(dataFile, "dataFile");
+        require(mediaType, "mediaType");
+        require(resetQuery, "resetQuery");
+        require(moveKey, "moveKey");
+
         // absent and present-but-empty mean the same thing: no target image, use the prompt's
         // description. Left as a blank string it would be sent as an image URL of "".
         targetImage = targetImage == null || targetImage.isBlank() ? null : targetImage;
+    }
+
+    private static void require(String value, String key) {
+        if (value == null || value.isBlank()) {
+            throw new IllegalStateException(
+                    key + " is missing or blank. A string key nobody wrote binds to null rather"
+                            + " than failing, and this one would fail later and further from"
+                            + " here. Set it in the lesson's task.properties.");
+        }
     }
 
     /** The prompt-facing half of a tool — the only half the exercise supplies. */

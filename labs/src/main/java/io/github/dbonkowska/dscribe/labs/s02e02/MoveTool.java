@@ -36,12 +36,12 @@ final class MoveTool {
     /**
      * The facts about the exercise this needs, all supplied from outside the repository.
      *
-     * @param answerKey the field name the hub expects the address under — the exercise's word,
+     * @param moveKey   the field name the hub expects the address under — the exercise's word,
      *                  not ours, so nothing here is named after it
      * @param positions the addresses that exist, which become the schema's vocabulary
      * @param maxMoves  how many calls this may spend before it stops sending
      */
-    record Spec(String answerKey, List<String> positions, int maxMoves) {}
+    record Spec(String moveKey, List<String> positions, int maxMoves) {}
 
     private final ResilientHub hub;
     private final Spec spec;
@@ -84,8 +84,10 @@ final class MoveTool {
                             + " Nothing further will be sent. Report what you have.");
         }
 
+        // counted before sending, not after: a call that throws may still have reached the hub,
+        // so the conservative count is the one that includes it
         spent++;
-        String response = hub.call(label, Map.of(spec.answerKey(), target));
+        String response = hub.call(label, Map.of(spec.moveKey(), target));
         responses.add(response);
         return ToolOutput.of(response);
     }

@@ -193,10 +193,11 @@ public final class RunTranscript implements Transcript, AutoCloseable {
     /**
      * A base64 image payload, replaced by its size.
      *
-     * <p>Only on the delegated path. {@link #append}'s raw blocks stay verbatim, which is the
-     * older and stronger guarantee: a serialisation fault has to show up exactly as it went over
-     * the wire. Nothing sends an inline image through there, so nothing is given up by leaving
-     * it alone.
+     * <p>Applied to the delegated exchange's raw block, and to image parts wherever a
+     * conversation is rendered, on either path. Never to {@link #append}'s raw blocks: those stay
+     * verbatim, which is the older and stronger guarantee — a serialisation fault has to show up
+     * exactly as it went over the wire. Nothing sends an inline image through the main loop, so
+     * nothing is given up by leaving them alone.
      *
      * <p>What is lost here is recoverable — the artefact is still on the hub, and still on disk
      * if the run kept it. What would be lost by writing it whole is not: a megabyte of base64 in

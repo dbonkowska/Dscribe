@@ -42,6 +42,11 @@ class MoveToolTest {
     /** What the fake hub was handed, in order. */
     private final List<Object> sent = new ArrayList<>();
 
+    /**
+     * The refusal is returned rather than thrown — the third call would error here otherwise. A
+     * spent budget is a fact the model should read and act on, by reporting what it has or by
+     * stopping, where a throw becomes "Tool failed:" and reads like something worth retrying.
+     */
     @Test
     void stopsSendingOnceTheBudgetIsSpent(@TempDir Path root) {
         Tool<MoveTool.Move> tool = moveTool(root, 2);
@@ -52,21 +57,8 @@ class MoveToolTest {
 
         assertEquals(2, sent.size(), "the third move must not reach the hub");
         assertTrue(
-                String.valueOf(refused.result()).contains("2"),
-                () -> "the refusal must name the budget: " + refused.result());
-    }
-
-    /**
-     * Returned rather than thrown. A spent budget is a fact the model should read and act on —
-     * by reporting what it has, or stopping — where a throw becomes "Tool failed:" and reads to
-     * the model like something worth retrying.
-     */
-    @Test
-    void reportsTheRefusalToTheModelRatherThanThrowing(@TempDir Path root) {
-        Tool<MoveTool.Move> tool = moveTool(root, 0);
-
-        assertEquals(0, sent.size());
-        assertTrue(String.valueOf(tool.handler().apply(new MoveTool.Move("a1")).result()).contains("0"));
+                String.valueOf(refused.result()).contains("2 of 2"),
+                () -> "the refusal must say the budget is spent: " + refused.result());
     }
 
     @Test
