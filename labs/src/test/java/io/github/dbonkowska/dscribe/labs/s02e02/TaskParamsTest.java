@@ -6,6 +6,7 @@ import tools.jackson.dataformat.javaprop.JavaPropsMapper;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -26,8 +27,12 @@ class TaskParamsTest {
     private static final TaskParams.ToolPrompt PROMPT = new TaskParams.ToolPrompt("n", "d");
 
     private static TaskParams with(List<String> positions, int maxMoves) {
+        return withTarget(positions, maxMoves, null);
+    }
+
+    private static TaskParams withTarget(List<String> positions, int maxMoves, String targetImage) {
         return new TaskParams(
-                "x-task", "\\{FLG:.+}", "a.png", "image/png", "reset=1",
+                "x-task", "\\{FLG:.+}", "a.png", "image/png", targetImage, "reset=1",
                 positions, maxMoves, "place", PROMPT, PROMPT, PROMPT);
     }
 
@@ -67,6 +72,24 @@ class TaskParamsTest {
 
         assertEquals(List.of("a1", "a2"), params.positions());
         assertEquals(9, params.maxMoves());
+    }
+
+    /**
+     * The target reaches the model one of two ways — shown as an image, or described in the
+     * delegated prompt — and an empty key has to mean the second rather than "show the image at
+     * the empty URL", which is a request the provider refuses at the first call.
+     */
+    @Test
+    void treatsABlankTargetImageAsNoneAtAll() {
+        assertNull(withTarget(List.of("a1"), 9, "").targetImage());
+        assertNull(withTarget(List.of("a1"), 9, "   ").targetImage());
+        assertNull(withTarget(List.of("a1"), 9, null).targetImage());
+    }
+
+    @Test
+    void keepsATargetImageThatIsActuallySet() {
+        assertEquals("https://e/target.png",
+                withTarget(List.of("a1"), 9, "https://e/target.png").targetImage());
     }
 
     @Test

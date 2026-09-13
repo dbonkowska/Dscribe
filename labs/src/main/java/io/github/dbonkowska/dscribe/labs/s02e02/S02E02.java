@@ -33,20 +33,33 @@ import java.util.regex.Pattern;
 public class S02E02 {
 
     /**
-     * The planning half. A starting bet: what this lesson asks of it is bookkeeping over a small
-     * state space — read a description, compare it to a target, work out what to change — which
-     * is the kind of thing the cheaper model has repeatedly done in fewer steps.
+     * The planning half. Started on {@code openai/gpt-5.6-luna}, and that was the weak link: the
+     * readings were mostly right, but it lost track of which positions were already correct and
+     * started moving ones that were. That is state-tracking across a sequence of moves, which is
+     * what a stronger tier buys.
+     *
+     * <p>One tier up in the same family rather than a {@code -pro} model. The pro tiers reason
+     * for a long time per call, and a loop of up to {@link #MAX_ITERATIONS} round-trips pays that
+     * on every one of them.
      *
      * <p>A preference, not the last word — {@code -Dopenrouter.model}, {@code OPENROUTER_MODEL}
      * and {@code openrouter.model} each still win over it.
      */
-    private static final String MODEL = "openai/gpt-5.6-luna";
+    private static final String MODEL = "openai/gpt-5.6-sol";
 
     /**
-     * The looking half, and the one the lesson's own hint argues about. Overridden separately
-     * from the planner, through {@code -Dopenrouter.vision.model}, {@code OPENROUTER_VISION_MODEL}
-     * and {@code openrouter.vision.model} — which is the whole reason it is a second slot: trying
+     * The looking half. Overridden separately from the planner, through
+     * {@code -Dopenrouter.vision.model}, {@code OPENROUTER_VISION_MODEL} and
+     * {@code openrouter.vision.model} — which is the whole reason it is a second slot: trying
      * another reader must not retarget the planner, and vice versa.
+     *
+     * <p>The lesson's own suggestion, and good enough: most positions read correctly. Its readings
+     * are not perfectly stable — the same artefact from a fresh reset has come back with one
+     * position described two ways — so a misread is possible and the planner should look again
+     * rather than trust one reading for a whole plan.
+     *
+     * <p>{@code google/gemini-3.1-pro-preview} was tried and was too slow to drive the loop: the
+     * vision call happens on every look, and a pro tier's latency is paid each time.
      */
     private static final String VISION_MODEL = "google/gemini-3-flash-preview";
 
@@ -75,6 +88,9 @@ public class S02E02 {
         settings.put("hub base url", labsConfig.hub().baseUrl());
         settings.put("max iterations", String.valueOf(MAX_ITERATIONS));
         settings.put("max moves", String.valueOf(task.maxMoves()));
+        // which of the two ways the target reached the model, so a run that read it badly can be
+        // told apart from one that was never shown it
+        settings.put("target", task.targetImage() == null ? "described in the prompt" : "shown");
         settings.put("max wait", MAX_WAIT.toString());
 
         try (RunTranscript transcript = RunTranscript.open(
@@ -106,7 +122,7 @@ public class S02E02 {
                     vision.withTranscript(transcript.delegated("vision")),
                     hub,
                     lesson.prompt("vision/system.md"),
-                    new VisionTool.Spec(task.dataFile(), task.mediaType()));
+                    new VisionTool.Spec(task.dataFile(), task.mediaType(), task.targetImage()));
 
             MoveTool moves = new MoveTool(
                     resilient,

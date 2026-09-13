@@ -10,6 +10,7 @@ import io.github.dbonkowska.dscribe.tool.ToolOutput;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -35,11 +36,14 @@ final class VisionTool {
     record Look() {}
 
     /**
-     * @param dataFile  what to read at the hub
-     * @param mediaType what those bytes are, for the provider — the exercise's format, so it is
-     *                  supplied rather than guessed from the name
+     * @param dataFile    what to read at the hub
+     * @param mediaType   what those bytes are, for the provider — the exercise's format, so it is
+     *                    supplied rather than guessed from the name
+     * @param targetImage a static image of the state being worked towards, shown alongside the
+     *                    current one. Null or blank when the target is described in words
+     *                    instead, which is the cheaper option and the one to start from
      */
-    record Spec(String dataFile, String mediaType) {}
+    record Spec(String dataFile, String mediaType, String targetImage) {}
 
     private final LlmClient llm;
     private final HubClient hub;
@@ -70,18 +74,30 @@ final class VisionTool {
         byte[] bytes = hub.downloadBytes(spec.dataFile());
         log.info("read {} · {} bytes", spec.dataFile(), bytes.length);
 
-        // no text part beside the image: a data URI repeated as text would be the whole payload
-        // again, in a field nothing reads
+        // no text part beside the images: a data URI repeated as text would be the whole payload
+        // again, in a field nothing reads. Which image is which is therefore carried by order
+        // alone — current state first, target second — and the prompt is what says so.
+        List<ContentPart> parts = new ArrayList<>();
+        parts.add(ContentPart.image(spec.mediaType(), bytes));
+
+        // by URL, deliberately, where the other is by content. This one is static: it cannot have
+        // changed between the decision to show it and the provider fetching it, which is the only
+        // thing inline bytes buy. A link costs nothing per call and keeps the record readable.
+        if (shown(spec.targetImage())) {
+            parts.add(ContentPart.image(spec.targetImage()));
+        }
+
         List<Message> conversation = List.of(
                 new Message(Role.system, prompt),
-                new Message(
-                        Role.user,
-                        List.of(ContentPart.image(spec.mediaType(), bytes)),
-                        null,
-                        null));
+                new Message(Role.user, List.copyOf(parts), null, null));
 
         // nulls rather than an empty list: this asks for prose, and a request carrying
         // "tools": [] with a tool_choice is a different thing to answer
         return ToolOutput.of(llm.send(conversation, null, null).message().text());
+    }
+
+    /** Blank counts as absent, as it does everywhere a value arrives from configuration. */
+    private static boolean shown(String url) {
+        return url != null && !url.isBlank();
     }
 }

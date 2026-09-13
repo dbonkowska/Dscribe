@@ -319,6 +319,51 @@ class RunTranscriptTest {
         assertFalse(written.contains(payload), "the payload must not reach the file");
     }
 
+    /**
+     * A message whose content is an array of parts used to render as a role heading with nothing
+     * under it — {@code content.asString("")} is empty for an array. The next thing written was
+     * the model's answer, so it sat directly beneath the {@code user} heading and read as though
+     * it were the prompt. Whoever was debugging the run could not tell what had been asked.
+     */
+    @Test
+    void rendersTheContentPartsOfAMessageRatherThanLeavingItBlank() throws IOException {
+        RunTranscript transcript = open(root());
+
+        transcript.delegated("vision").append(
+                "{\"model\":\"vision/model\",\"messages\":[{\"role\":\"user\",\"content\":["
+                        + "{\"type\":\"text\",\"text\":\"look at this\"},"
+                        + "{\"type\":\"image_url\",\"image_url\":{\"url\":\"https://e/x.png\"}}]}]}",
+                DELEGATED_RESPONSE);
+
+        String written = contents(transcript);
+        int user = written.indexOf("**user**");
+        int text = written.indexOf("> look at this");
+        int image = written.indexOf("https://e/x.png");
+        int answer = written.indexOf("> it reads as x");
+
+        assertTrue(text > user, () -> written);
+        assertTrue(image > text, "the image belongs with the prompt, not after the answer");
+        assertTrue(answer > image, "and the answer still comes last");
+    }
+
+    @Test
+    void namesAnInlineImageBySizeWhereTheConversationIsRendered() throws IOException {
+        String payload = Base64.getEncoder().encodeToString(new byte[300]);
+        RunTranscript transcript = open(root());
+
+        transcript.delegated("vision")
+                .append(delegatedRequestShowing("data:image/png;base64," + payload), DELEGATED_RESPONSE);
+
+        String written = contents(transcript);
+        // before the fold, so this is the rendered conversation rather than the raw block —
+        // which already elides, and would otherwise satisfy a bare contains() on its own
+        int marker = written.indexOf("<300 bytes elided>");
+        int raw = written.indexOf("<details>");
+
+        assertTrue(marker >= 0 && marker < raw, () -> written);
+        assertFalse(written.contains(payload), "not in the rendering either, only in the raw block");
+    }
+
     @Test
     void leavesAnOrdinaryImageUrlInTheRecordUntouched() throws IOException {
         // a URL is short, and it is the only handle anyone reading the file has on the image

@@ -270,7 +270,33 @@ public final class RunTranscript implements Transcript, AutoCloseable {
         }
         block.append("\n\n");
 
-        quote(block, message.path("content").asString(""));
+        JsonNode content = message.path("content");
+        if (content.isArray()) {
+            content.forEach(part -> part(block, part));
+        } else {
+            quote(block, content.asString(""));
+        }
+    }
+
+    /**
+     * One piece of a multipart message.
+     *
+     * <p>Without this a message carrying parts rendered as a role heading and nothing else —
+     * {@code asString} is empty for an array — so the next thing written sat under that heading
+     * and read as though it were the prompt. Both an image shown by a tool and a delegated call's
+     * own turn arrive in this shape.
+     *
+     * <p>An image is named, never inlined: what is useful about it here is that it was there and
+     * how big it was, and a data URI written out would be the largest thing in the file.
+     */
+    private static void part(StringBuilder block, JsonNode part) {
+        if ("image_url".equals(part.path("type").asString(""))) {
+            block.append("> *[image]* `")
+                    .append(elided(part.at("/image_url/url").asString("")))
+                    .append("`\n\n");
+            return;
+        }
+        quote(block, part.path("text").asString(""));
     }
 
     /** Text as a blockquote, line by line, so Markdown keeps the shape the model wrote. */

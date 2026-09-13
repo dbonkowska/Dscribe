@@ -17,6 +17,9 @@ import java.util.List;
  * @param flagPattern a regex matching the result, used both to spot it and to validate it
  * @param dataFile    the artefact to look at, read fresh on every call
  * @param mediaType   what those bytes are, for the provider
+ * @param targetImage a static image of the state being worked towards, shown beside the current
+ *                    one. Optional: leave it unset and the target is whatever the delegated
+ *                    prompt describes in words, which is cheaper and easier for a model to read
  * @param resetQuery  the query string that restores the artefact's starting state
  * @param positions   the addresses that exist
  * @param maxMoves    how many calls a run may spend moving
@@ -30,6 +33,7 @@ public record TaskParams(
         String flagPattern,
         String dataFile,
         String mediaType,
+        String targetImage,
         String resetQuery,
         List<String> positions,
         int maxMoves,
@@ -68,6 +72,10 @@ public record TaskParams(
                             + " the lesson's task.properties.");
         }
         positions = List.copyOf(positions);
+
+        // absent and present-but-empty mean the same thing: no target image, use the prompt's
+        // description. Left as a blank string it would be sent as an image URL of "".
+        targetImage = targetImage == null || targetImage.isBlank() ? null : targetImage;
     }
 
     /** The prompt-facing half of a tool — the only half the exercise supplies. */
