@@ -19,6 +19,7 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Pattern;
 
 /**
  * One run's record: what the model was sent, what it answered, what the hub was asked, and how
@@ -35,6 +36,10 @@ public final class RunTranscript implements Transcript, AutoCloseable {
     private static final ObjectMapper MAPPER = JsonMapper.builder()
             .disable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
             .build();
+
+    /** A data URI's media type and its payload — the shape {@code ContentPart.image} produces. */
+    private static final Pattern DATA_URI =
+            Pattern.compile("data:([\\w.+-]+/[\\w.+-]+);base64,([A-Za-z0-9+/]+={0,2})");
 
     private static final DateTimeFormatter STAMP = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH-mm-ss");
     private static final DateTimeFormatter READABLE = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
@@ -114,7 +119,8 @@ public final class RunTranscript implements Transcript, AutoCloseable {
         JsonNode back = read(response);
         JsonNode messages = sent.path("messages");
 
-        StringBuilder block = new StringBuilder("\n## turn ").append(turn).append(" · model\n\n")
+        StringBuilder block = new StringBuilder("\n## turn ").append(turn).append(" · model")
+                .append(served(sent, back)).append("\n\n")
                 .append(skim(back)).append("\n\n");
 
         // whatever the model wrote in its own voice this turn — the skim line above names only its
@@ -146,6 +152,91 @@ public final class RunTranscript implements Transcript, AutoCloseable {
                 .append("```json\n").append(response.strip()).append("\n```\n");
 
         write(block.toString());
+    }
+
+    /**
+     * A sink for an exchange made beside the run's own conversation — a call a tool delegates to
+     * a second model — writing into this same file under the turn that caused it.
+     *
+     * <p>A separate rendering path rather than another caller of {@link #append}, and the reason
+     * is {@link #rendered}. That cursor counts how much of *one* growing conversation has already
+     * been written, so each turn shows only what is new. A second, shorter conversation sharing
+     * it rewinds the count, and every message the main loop adds past that point is then treated
+     * as already-written and silently never appears. The corruption is invisible in the file that
+     * would be used to notice it.
+     *
+     * <p>Nothing here is incremental, because a delegated call is not a conversation: it is one
+     * exchange, whole, and the next one starts again from nothing. So it needs no cursor, and it
+     * leaves {@link #turn} alone too — the heading borrows the current turn number rather than
+     * claiming one, which is what puts it visibly underneath its cause.
+     */
+    public Transcript delegated(String label) {
+        return (request, response) -> {
+            JsonNode sent = read(request);
+            JsonNode back = read(response);
+
+            StringBuilder block = new StringBuilder("\n## turn ").append(turn)
+                    .append(" · ").append(label).append(served(sent, back)).append("\n\n");
+
+            sent.path("messages").forEach(message -> conversation(block, message));
+
+            quote(block, back.at("/choices/0/message/content").asString(""));
+
+            block.append("<details><summary>raw exchange</summary>\n\n")
+                    .append("```json\n").append(elided(request.strip())).append("\n```\n\n")
+                    .append("```json\n").append(response.strip()).append("\n```\n</details>\n");
+
+            write(block.toString());
+        };
+    }
+
+    /**
+     * A base64 image payload, replaced by its size.
+     *
+     * <p>Applied to the delegated exchange's raw block, and to image parts wherever a
+     * conversation is rendered, on either path. Never to {@link #append}'s raw blocks: those stay
+     * verbatim, which is the older and stronger guarantee — a serialisation fault has to show up
+     * exactly as it went over the wire. Nothing sends an inline image through the main loop, so
+     * nothing is given up by leaving them alone.
+     *
+     * <p>What is lost here is recoverable — the artefact is still on the hub, and still on disk
+     * if the run kept it. What would be lost by writing it whole is not: a megabyte of base64 in
+     * every request that shows the image makes the surrounding exchanges unreadable, and being
+     * readable afterwards is the entire value of this file.
+     *
+     * <p>The size is the decoded length, computed from the encoding rather than by decoding —
+     * the payload is already the largest thing in memory and does not need a second copy just to
+     * be counted.
+     */
+    static String elided(String json) {
+        return DATA_URI.matcher(json).replaceAll(match ->
+                "data:" + match.group(1) + ";base64, <" + decodedLength(match.group(2)) + " bytes elided>");
+    }
+
+    private static int decodedLength(String base64) {
+        int padding = base64.endsWith("==") ? 2 : base64.endsWith("=") ? 1 : 0;
+        return base64.length() / 4 * 3 - padding;
+    }
+
+    /**
+     * Which model answered, for the heading — the response's own word for it, falling back to
+     * what the request asked for.
+     *
+     * <p>The response wins because a provider may route elsewhere than it was asked, and the
+     * model that actually answered is the one a bad turn should be attributed to. It matters now
+     * that a run can use more than one: a delegated read and the planning turn that asked for it
+     * sit next to each other in this file, and without a name on each the reader cannot tell
+     * which of the two reasoned badly.
+     *
+     * <p>Empty when neither half names one, so a payload that could not be parsed still gets a
+     * heading rather than the word "null".
+     */
+    private static String served(JsonNode request, JsonNode response) {
+        String model = response.path("model").asString("");
+        if (model.isBlank()) {
+            model = request.path("model").asString("");
+        }
+        return model.isBlank() ? "" : " · " + model;
     }
 
     /** What the model did this turn, in one line — the layer you read top to bottom. */
@@ -180,7 +271,33 @@ public final class RunTranscript implements Transcript, AutoCloseable {
         }
         block.append("\n\n");
 
-        quote(block, message.path("content").asString(""));
+        JsonNode content = message.path("content");
+        if (content.isArray()) {
+            content.forEach(part -> part(block, part));
+        } else {
+            quote(block, content.asString(""));
+        }
+    }
+
+    /**
+     * One piece of a multipart message.
+     *
+     * <p>Without this a message carrying parts rendered as a role heading and nothing else —
+     * {@code asString} is empty for an array — so the next thing written sat under that heading
+     * and read as though it were the prompt. Both an image shown by a tool and a delegated call's
+     * own turn arrive in this shape.
+     *
+     * <p>An image is named, never inlined: what is useful about it here is that it was there and
+     * how big it was, and a data URI written out would be the largest thing in the file.
+     */
+    private static void part(StringBuilder block, JsonNode part) {
+        if ("image_url".equals(part.path("type").asString(""))) {
+            block.append("> *[image]* `")
+                    .append(elided(part.at("/image_url/url").asString("")))
+                    .append("`\n\n");
+            return;
+        }
+        quote(block, part.path("text").asString(""));
     }
 
     /** Text as a blockquote, line by line, so Markdown keeps the shape the model wrote. */

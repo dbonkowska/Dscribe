@@ -29,8 +29,26 @@ public class SchemaUtils {
         return new SchemaGenerator(config.build());
     }
 
+    /**
+     * The schema for a type, always shaped as a closed object.
+     *
+     * <p>The generator omits {@code properties} and {@code required} for a type with no
+     * components — a tool the model calls to trigger something rather than to pass anything.
+     * That leaves a strict-mode request asserting a closed object without saying what it is
+     * closed around, which is at best provider-dependent, and the place it would be found out is
+     * the first tool call of a run that has already been paid for. Both keys are filled in here
+     * so the shape is the same one every other schema has.
+     */
     public static ObjectNode from(Class<?> clazz) {
-        return GENERATOR.generateSchema(clazz);
+        ObjectNode schema = GENERATOR.generateSchema(clazz);
+
+        if (!schema.has("properties")) {
+            schema.putObject("properties");
+        }
+        if (!schema.has("required")) {
+            schema.putArray("required");
+        }
+        return schema;
     }
 
     /**

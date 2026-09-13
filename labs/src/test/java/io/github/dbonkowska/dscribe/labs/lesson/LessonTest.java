@@ -27,7 +27,7 @@ class LessonTest {
 
     private static LabsConfig configPointingAt(Path lessonsDir) {
         return new LabsConfig(
-                new LabsConfig.Llm("k", "m", "https://llm.test"),
+                new LabsConfig.Llm("k", "m", null, "https://llm.test"),
                 new LabsConfig.Hub("k", "https://hub.test", "https://hub.test/verify"),
                 lessonsDir,
                 lessonsDir.resolve("data"));

@@ -8,6 +8,7 @@ import java.net.http.HttpHeaders;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -142,6 +143,37 @@ class RunTranscriptTest {
         assertTrue(written.contains("lookup {\"q\":\"x\"}"), () -> written);
     }
 
+    /**
+     * A run now talks to more than one model, so a turn that does not say which one served it
+     * leaves the file ambiguous exactly where it matters — a delegated read and the planning
+     * turn that asked for it sit next to each other.
+     */
+    @Test
+    void namesTheModelThatActuallyServedTheTurn() throws IOException {
+        // the provider can route elsewhere than the request asked, and what answered is the fact
+        // worth keeping: a run that reads badly is otherwise blamed on the model nobody called
+        RunTranscript transcript = open(root());
+
+        transcript.append(
+                "{\"model\":\"asked/model\",\"messages\":[{\"role\":\"user\",\"content\":\"go\"}],"
+                        + "\"tools\":[]}",
+                "{\"model\":\"served/model\",\"choices\":[{\"finish_reason\":\"stop\","
+                        + "\"message\":{\"role\":\"assistant\",\"content\":\"ok\"}}]}");
+
+        String written = contents(transcript);
+        assertTrue(written.contains("## turn 1 · model · served/model"), () -> written);
+    }
+
+    @Test
+    void fallsBackToTheModelItAskedForWhenTheResponseNamesNone() throws IOException {
+        RunTranscript transcript = open(root());
+
+        transcript.append(request("{\"role\":\"user\",\"content\":\"go\"}"), TEXT_RESPONSE);
+
+        String written = contents(transcript);
+        assertTrue(written.contains("## turn 1 · model · some/model"), () -> written);
+    }
+
     @Test
     void marksATurnThatProducedNoToolCalls() throws IOException {
         RunTranscript transcript = open(root());
@@ -180,6 +212,167 @@ class RunTranscriptTest {
         assertEquals(1, written.split("> first", -1).length - 1, () -> written);
         assertTrue(written.contains("**tool**"), () -> written);
         assertTrue(written.contains("> 42"), () -> written);
+    }
+
+    private static final String DELEGATED_REQUEST =
+            "{\"model\":\"vision/model\",\"messages\":["
+                    + "{\"role\":\"system\",\"content\":\"describe it\"},"
+                    + "{\"role\":\"user\",\"content\":\"look\"}]}";
+
+    private static final String DELEGATED_RESPONSE =
+            "{\"model\":\"vision/model\",\"choices\":[{\"finish_reason\":\"stop\","
+                    + "\"message\":{\"role\":\"assistant\",\"content\":\"it reads as x\"}}]}";
+
+    private static String toolTurn(String id, String content) {
+        return "{\"role\":\"assistant\",\"content\":null},"
+                + "{\"role\":\"tool\",\"tool_call_id\":\"" + id + "\",\"content\":\"" + content + "\"}";
+    }
+
+    /**
+     * Two main turns, a delegated exchange, then a third main turn.
+     *
+     * <p>The second main turn is what makes this sequence able to fail. A delegated call carries
+     * two messages; by the time it happens the main conversation has rendered three, so a shared
+     * cursor is dragged *backwards* and the next main turn re-renders what it already wrote. With
+     * only one main turn first the cursor moves forward by one and the damage is invisible —
+     * which it was, in the first version of these tests.
+     */
+    private RunTranscript interleaved() {
+        RunTranscript transcript = open(root());
+        String seed = "{\"role\":\"user\",\"content\":\"first\"}";
+        String second = seed + "," + toolTurn("call_1", "42");
+        String third = second + "," + toolTurn("call_2", "99");
+
+        transcript.append(request(seed), TOOL_CALL_RESPONSE);
+        transcript.append(request(second), TOOL_CALL_RESPONSE);
+        transcript.delegated("vision").append(DELEGATED_REQUEST, DELEGATED_RESPONSE);
+        transcript.append(request(third), TEXT_RESPONSE);
+
+        return transcript;
+    }
+
+    @Test
+    void recordsADelegatedExchangeUnderTheTurnThatCausedIt() throws IOException {
+        String written = contents(interleaved());
+
+        int cause = written.indexOf("## turn 2 · model");
+        int delegated = written.indexOf("## turn 2 · vision · vision/model");
+        int next = written.indexOf("## turn 3 · model");
+
+        assertTrue(delegated >= 0, () -> written);
+        assertTrue(delegated > cause, "the delegated block belongs under the turn that caused it");
+        assertTrue(next > delegated, "and before the turn that read its result");
+    }
+
+    /**
+     * The reason this is a second rendering path rather than a second caller of {@code append}.
+     * That method keeps a cursor over one growing conversation; a delegated exchange is a
+     * different, shorter conversation, and sharing the cursor rewinds it — after which the main
+     * loop's new messages are skipped and never appear in the file at all.
+     */
+    @Test
+    void leavesTheMainConversationsRenderingCursorAlone() throws IOException {
+        String written = contents(interleaved());
+
+        // dragged backwards: the turn after re-renders what it already wrote
+        assertEquals(1, written.split("> first", -1).length - 1,
+                () -> "the seed must be rendered exactly once: " + written);
+        assertEquals(1, written.split("> 42", -1).length - 1,
+                () -> "an already-written result must not be rendered a second time: " + written);
+        // dragged forwards: the turn after is skipped entirely
+        assertTrue(written.contains("> 99"),
+                "the turn after a delegated exchange must still be rendered");
+    }
+
+    @Test
+    void showsWhatTheDelegatedCallWasAskedAndWhatItAnswered() throws IOException {
+        RunTranscript transcript = open(root());
+
+        transcript.delegated("vision").append(DELEGATED_REQUEST, DELEGATED_RESPONSE);
+
+        String written = contents(transcript);
+        assertTrue(written.contains("> describe it"), () -> written);
+        assertTrue(written.contains("> look"), () -> written);
+        assertTrue(written.contains("> it reads as x"), () -> written);
+    }
+
+    private static String delegatedRequestShowing(String url) {
+        return "{\"model\":\"vision/model\",\"messages\":[{\"role\":\"user\",\"content\":["
+                + "{\"type\":\"image_url\",\"image_url\":{\"url\":\"" + url + "\"}}]}]}";
+    }
+
+    /**
+     * An inline image is the one payload that can destroy this file's reason for existing. An
+     * image of a few hundred kilobytes becomes a megabyte of base64 in every request that shows
+     * it, and a transcript nobody can scroll through is worth about as much as no transcript.
+     */
+    @Test
+    void elidesAnEncodedImagePayloadRatherThanWritingItWhole() throws IOException {
+        String payload = Base64.getEncoder().encodeToString(new byte[300]);
+        RunTranscript transcript = open(root());
+
+        transcript.delegated("vision")
+                .append(delegatedRequestShowing("data:image/png;base64," + payload), DELEGATED_RESPONSE);
+
+        String written = contents(transcript);
+        assertTrue(written.contains("data:image/png;base64, <300 bytes elided>"), () -> written);
+        assertFalse(written.contains(payload), "the payload must not reach the file");
+    }
+
+    /**
+     * A message whose content is an array of parts used to render as a role heading with nothing
+     * under it — {@code content.asString("")} is empty for an array. The next thing written was
+     * the model's answer, so it sat directly beneath the {@code user} heading and read as though
+     * it were the prompt. Whoever was debugging the run could not tell what had been asked.
+     */
+    @Test
+    void rendersTheContentPartsOfAMessageRatherThanLeavingItBlank() throws IOException {
+        RunTranscript transcript = open(root());
+
+        transcript.delegated("vision").append(
+                "{\"model\":\"vision/model\",\"messages\":[{\"role\":\"user\",\"content\":["
+                        + "{\"type\":\"text\",\"text\":\"look at this\"},"
+                        + "{\"type\":\"image_url\",\"image_url\":{\"url\":\"https://e/x.png\"}}]}]}",
+                DELEGATED_RESPONSE);
+
+        String written = contents(transcript);
+        int user = written.indexOf("**user**");
+        int text = written.indexOf("> look at this");
+        int image = written.indexOf("https://e/x.png");
+        int answer = written.indexOf("> it reads as x");
+
+        assertTrue(text > user, () -> written);
+        assertTrue(image > text, "the image belongs with the prompt, not after the answer");
+        assertTrue(answer > image, "and the answer still comes last");
+    }
+
+    @Test
+    void namesAnInlineImageBySizeWhereTheConversationIsRendered() throws IOException {
+        String payload = Base64.getEncoder().encodeToString(new byte[300]);
+        RunTranscript transcript = open(root());
+
+        transcript.delegated("vision")
+                .append(delegatedRequestShowing("data:image/png;base64," + payload), DELEGATED_RESPONSE);
+
+        String written = contents(transcript);
+        // before the fold, so this is the rendered conversation rather than the raw block —
+        // which already elides, and would otherwise satisfy a bare contains() on its own
+        int marker = written.indexOf("<300 bytes elided>");
+        int raw = written.indexOf("<details>");
+
+        assertTrue(marker >= 0 && marker < raw, () -> written);
+        assertFalse(written.contains(payload), "not in the rendering either, only in the raw block");
+    }
+
+    @Test
+    void leavesAnOrdinaryImageUrlInTheRecordUntouched() throws IOException {
+        // a URL is short, and it is the only handle anyone reading the file has on the image
+        RunTranscript transcript = open(root());
+
+        transcript.delegated("vision")
+                .append(delegatedRequestShowing("https://e/x.png"), DELEGATED_RESPONSE);
+
+        assertTrue(contents(transcript).contains("https://e/x.png"), "expected the url kept");
     }
 
     @Test

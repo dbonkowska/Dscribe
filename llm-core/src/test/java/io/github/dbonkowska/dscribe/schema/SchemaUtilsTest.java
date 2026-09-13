@@ -107,6 +107,25 @@ class SchemaUtilsTest {
         assertEquals(List.of("one", "two"), values);
     }
 
+    /** A tool the model calls to trigger something, rather than to pass anything. */
+    record Trigger() {}
+
+    @Test
+    void generatesAUsableSchemaForATypeWithNoComponents() {
+        // strict mode requires properties, required and additionalProperties to be present and
+        // agree with each other. An empty record is the one shape where "no properties" could
+        // plausibly come out as a missing key instead of an empty one — and the provider rejects
+        // the request rather than ignoring it, at the first call of a run that has already paid
+        // to get there.
+        ObjectNode schema = SchemaUtils.from(Trigger.class);
+
+        assertEquals("object", schema.at("/type").stringValue());
+        assertTrue(schema.at("/properties").isObject(), () -> "expected an object in: " + schema);
+        assertTrue(schema.at("/properties").isEmpty(), () -> schema.toString());
+        assertTrue(schema.at("/required").isArray(), () -> "expected an array in: " + schema);
+        assertFalse(schema.at("/additionalProperties").booleanValue(), () -> schema.toString());
+    }
+
     @Test
     void atRejectsAPointerThatMissesRatherThanFailingLater() {
         ObjectNode schema = SchemaUtils.from(Loose.class);
