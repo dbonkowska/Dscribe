@@ -4,9 +4,11 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.StringJoiner;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -27,6 +29,9 @@ final class EventMap {
 
     /** Date and time as the named groups deliver them, joined by a space. */
     static final DateTimeFormatter MINUTE = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
+
+    private static final DateTimeFormatter DATE = DateTimeFormatter.ofPattern("yyyy-MM-dd");
+    private static final DateTimeFormatter TIME = DateTimeFormatter.ofPattern("HH:mm");
 
     private final List<Line> lines;
     private final List<Event> events;
@@ -95,6 +100,65 @@ final class EventMap {
     /** In first-occurrence order, which is the order the ids count in. */
     List<Event> events() {
         return events;
+    }
+
+    /**
+     * What the model reads instead of the source: one line per event, all severities.
+     *
+     * <p>The layout is this code's own presentation rather than anything the exercise supplies, so
+     * it lives here. Times are written in the form zoom parses, so a moment the model wants to look
+     * around is one it copies out of this rather than reassembles.
+     */
+    String renderMap() {
+        StringBuilder map = new StringBuilder();
+        for (Event event : events) {
+            map.append(event.id()).append(' ')
+                    .append(event.severity()).append(" x").append(event.count())
+                    .append(" first ").append(MINUTE.format(event.first()))
+                    .append(" last ").append(MINUTE.format(event.last()))
+                    .append(" | ").append(event.message())
+                    .append('\n');
+        }
+        return map.toString();
+    }
+
+    /**
+     * The text that goes to the hub: each chosen event once, at the minute it first appeared, in
+     * the order things happened.
+     *
+     * <p>The model only chooses. Order and the time a line carries are decided here, so neither can
+     * be got wrong by a model that listed its choices in the order it thought of them.
+     *
+     * @param lineFormat four {@code %s}: date, time, severity, message — validated by
+     *                   {@link TaskParams}
+     * @throws IllegalArgumentException naming an id the map does not have
+     */
+    String renderSubmission(List<String> ids, String lineFormat) {
+        List<Event> chosen = new ArrayList<>(ids.size());
+        for (String id : ids) {
+            chosen.add(events.stream()
+                    .filter(event -> event.id().equals(id))
+                    .findFirst()
+                    .orElseThrow(() -> new IllegalArgumentException(
+                            "There is no entry " + id + " in the map. Use only ids the map lists.")));
+        }
+
+        chosen.sort(Comparator.comparing(Event::first).thenComparing(Event::id));
+
+        StringJoiner submission = new StringJoiner("\n");
+        for (Event event : chosen) {
+            submission.add(lineFormat.formatted(
+                    DATE.format(event.first()), TIME.format(event.first()), event.severity(), event.message()));
+        }
+        return submission.toString();
+    }
+
+    /** The events code submits before the model is involved, in the map's order. */
+    List<String> idsWithSeverity(List<String> severities) {
+        return events.stream()
+                .filter(event -> severities.contains(event.severity()))
+                .map(Event::id)
+                .toList();
     }
 
     /** One event while its lines are still being counted. */

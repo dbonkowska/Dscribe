@@ -126,6 +126,71 @@ class EventMapTest {
         assertEquals("zeta", map.events().getFirst().message());
     }
 
+    /**
+     * The whole of what the model knows about the source, so every field has to be there: the id
+     * it refers to the event by, the count that separates background from one-offs, and both times
+     * in the same form zoom accepts — copied, not reassembled.
+     */
+    @Test
+    void rendersOneMapLinePerEventWithEverythingTheModelChoosesBy() {
+        EventMap map = parse(
+                "2030-01-01 10:00 HIGH pump stalled",
+                "2030-01-01 10:05 LOW fan ok",
+                "2030-01-01 10:20 HIGH pump stalled",
+                "2030-01-01 10:40 HIGH pump stalled");
+
+        assertEquals(List.of(
+                        "E1 HIGH x3 first 2030-01-01 10:00 last 2030-01-01 10:40 | pump stalled",
+                        "E2 LOW x1 first 2030-01-01 10:05 last 2030-01-01 10:05 | fan ok"),
+                map.renderMap().lines().toList());
+    }
+
+    /**
+     * Two properties the model must not be able to get wrong, so neither is left to it: lines come
+     * out in the order things happened whatever order it listed them in, and each carries the time
+     * the event began — the last time would move a cause to after its effect.
+     */
+    @Test
+    void rendersASubmissionInTimeOrderAtEachEventsFirstOccurrence() {
+        EventMap map = parse(
+                "2030-01-01 10:00 HIGH pump stalled",
+                "2030-01-01 10:05 LOW fan ok",
+                "2030-01-01 10:20 HIGH pump stalled",
+                "2030-01-01 10:40 HIGH pump stalled");
+
+        assertEquals(
+                "[2030-01-01 10:00] [HIGH] pump stalled\n[2030-01-01 10:05] [LOW] fan ok",
+                map.renderSubmission(List.of("E2", "E1"), "[%s %s] [%s] %s"));
+    }
+
+    /**
+     * The schema narrows ids to the map's own, but a provider is not obliged to honour it — and an
+     * id that silently rendered as nothing would send a shorter log than the model believes it sent.
+     */
+    @Test
+    void refusesToRenderAnIdTheMapDoesNotHave() {
+        EventMap map = parse(
+                "2030-01-01 10:00 HIGH pump stalled",
+                "2030-01-01 10:05 LOW fan ok");
+
+        IllegalArgumentException thrown = assertThrows(IllegalArgumentException.class,
+                () -> map.renderSubmission(List.of("E1", "E9"), "%s %s %s %s"));
+
+        assertTrue(thrown.getMessage().contains("E9"), thrown::getMessage);
+    }
+
+    /** What code submits before the model is involved: chosen by severity, in the map's order. */
+    @Test
+    void selectsTheIdsOfEventsAtTheGivenSeverities() {
+        EventMap map = parse(
+                "2030-01-01 10:00 HIGH pump stalled",
+                "2030-01-01 10:05 LOW fan ok",
+                "2030-01-01 10:10 MID valve slow",
+                "2030-01-01 10:15 HIGH tank low");
+
+        assertEquals(List.of("E1", "E3", "E4"), map.idsWithSeverity(List.of("MID", "HIGH")));
+    }
+
     /** Padded to the width of the total, so ids sort and read the same way the map lists them. */
     @Test
     void padsIdsToTheWidthOfTheTotal() {
