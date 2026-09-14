@@ -45,6 +45,11 @@ matches zero and aborts the build: `-Dtest=AgentTest` gets through `llm-core` an
 tests changed nothing. Note the `surefire.` prefix — bare `-DfailIfNoSpecifiedTests` is
 silently ignored.
 
+**The same flag hides a selector that matches nothing at all.** Several classes are separated
+by commas — `-Dtest=TokensTest,RenderingTest`. Written `TokensTest+RenderingTest`, the pattern
+matches no class in either module, zero tests run, and the build still reports BUILD SUCCESS.
+Check for a `Tests run:` line before trusting a narrowed run's green.
+
 ### Running a lesson
 
 ```bash
