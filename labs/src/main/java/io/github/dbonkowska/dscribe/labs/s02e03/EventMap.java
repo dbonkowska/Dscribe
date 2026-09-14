@@ -5,6 +5,7 @@ import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -36,9 +37,23 @@ final class EventMap {
     private final List<Line> lines;
     private final List<Event> events;
 
+    /** Which entry a line was merged into, keyed the way merging is: severity, then message. */
+    private final Map<List<String>, String> idByKey;
+
     private EventMap(List<Line> lines, List<Event> events) {
         this.lines = lines;
         this.events = events;
+
+        Map<List<String>, String> ids = new HashMap<>();
+        for (Event event : events) {
+            ids.put(key(event.severity(), event.message()), event.id());
+        }
+        this.idByKey = Map.copyOf(ids);
+    }
+
+    /** The one definition of what makes two lines the same event. */
+    private static List<String> key(String severity, String message) {
+        return List.of(severity, message);
     }
 
     /**
@@ -64,7 +79,7 @@ final class EventMap {
             lines.add(line);
 
             // insertion order is first-occurrence order, which is what ids are numbered by
-            merging.computeIfAbsent(List.of(line.severity(), line.message()), key -> new Merging(line))
+            merging.computeIfAbsent(key(line.severity(), line.message()), key -> new Merging(line))
                     .add(line);
         }
 
@@ -151,6 +166,21 @@ final class EventMap {
                     DATE.format(event.first()), TIME.format(event.first()), event.severity(), event.message()));
         }
         return submission.toString();
+    }
+
+    /**
+     * The source itself, around a moment: every line within {@code minutes} either side of
+     * {@code at}, both edges included, in file order, each prefixed with the id of the entry it was
+     * merged into — so a line found here is one the model can submit.
+     */
+    List<String> around(LocalDateTime at, int minutes) {
+        LocalDateTime from = at.minusMinutes(minutes);
+        LocalDateTime to = at.plusMinutes(minutes);
+
+        return lines.stream()
+                .filter(line -> !line.minute().isBefore(from) && !line.minute().isAfter(to))
+                .map(line -> idByKey.get(key(line.severity(), line.message())) + " " + line.raw())
+                .toList();
     }
 
     /** The events code submits before the model is involved, in the map's order. */
