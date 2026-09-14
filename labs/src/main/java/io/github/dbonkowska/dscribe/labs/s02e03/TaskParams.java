@@ -108,7 +108,7 @@ public record TaskParams(
      * {@code %%s} or {@code %1$s}. Four distinct markers either all come out or the format is wrong.
      */
     private static void requireFourSlots(String lineFormat) {
-        String[] markers = {"d", "t", "s", "m"};
+        String[] markers = {"<<date>>", "<<time>>", "<<severity>>", "<<message>>"};
         String rendered;
         try {
             rendered = lineFormat.formatted((Object[]) markers);
