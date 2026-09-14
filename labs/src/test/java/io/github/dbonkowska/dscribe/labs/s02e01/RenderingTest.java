@@ -1,5 +1,6 @@
 package io.github.dbonkowska.dscribe.labs.s02e01;
 
+import io.github.dbonkowska.dscribe.labs.tokens.Tokens;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -14,7 +15,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  *
  * <p>The boundary cases measure the fixture with {@link Tokens} rather than pinning a literal.
  * A magic number here would be a second, quieter assertion about the encoding, which
- * {@link TokensTest} already owns; what these need to assert is the comparison, not the count.
+ * {@code TokensTest} already owns; what these need to assert is the comparison, not the count.
  *
  * <p>Placeholders and fixtures are invented — they belong to no lesson.
  */

@@ -1,4 +1,4 @@
-package io.github.dbonkowska.dscribe.labs.s02e01;
+package io.github.dbonkowska.dscribe.labs.tokens;
 
 import org.junit.jupiter.api.Test;
 
