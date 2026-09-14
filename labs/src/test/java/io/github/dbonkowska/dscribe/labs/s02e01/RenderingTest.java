@@ -1,5 +1,6 @@
 package io.github.dbonkowska.dscribe.labs.s02e01;
 
+import io.github.dbonkowska.dscribe.labs.tokens.TokenBudget;
 import io.github.dbonkowska.dscribe.labs.tokens.Tokens;
 import org.junit.jupiter.api.Test;
 
@@ -13,9 +14,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * and the exercise looks unwinnable with nothing saying why. Neither shows up as an exception in
  * a live run — one shows up as a wasted cycle, the other as a candidate that can never be tried.
  *
- * <p>The boundary cases measure the fixture with {@link Tokens} rather than pinning a literal.
- * A magic number here would be a second, quieter assertion about the encoding, which
- * {@code TokensTest} already owns; what these need to assert is the comparison, not the count.
+ * <p>Where the boundary sits moved to {@code TokenBudgetTest} along with the arithmetic. What
+ * stays here is the part only rendering knows: the placeholders, and that the size checked is the
+ * text once a row is filled in rather than the template.
  *
  * <p>Placeholders and fixtures are invented — they belong to no lesson.
  */
@@ -50,49 +51,33 @@ class RenderingTest {
                 () -> generous().render("Item {ID}. Reply.", ITEM));
     }
 
+    /**
+     * Only the wiring is asserted here. Where the boundary sits — inclusive, and tightened by the
+     * margin — is {@code TokenBudgetTest}'s subject; what this owns is that a render over it is
+     * refused, and that the refusal tells the model what it spent.
+     */
     @Test
-    void acceptsARenderThatExactlyFitsTheEffectiveCap() {
-        int exact = Tokens.count(RENDERED);
-
-        assertEquals(RENDERED, new Rendering(ID, DESC, exact + 3, 3).render(TEMPLATE, ITEM),
-                "the boundary is inclusive — a candidate that exactly fits is sendable");
-    }
-
-    @Test
-    void refusesARenderOneTokenOverTheEffectiveCap() {
+    void refusesARenderOverTheBudgetAndSaysWhatItMeasured() {
         int exact = Tokens.count(RENDERED);
 
         IllegalArgumentException thrown = assertThrows(IllegalArgumentException.class,
-                () -> new Rendering(ID, DESC, exact + 2, 3).render(TEMPLATE, ITEM));
+                () -> new Rendering(ID, DESC, new TokenBudget(exact + 2, 3)).render(TEMPLATE, ITEM));
 
         assertTrue(thrown.getMessage().contains(String.valueOf(exact)),
                 () -> "the model has to be told what it spent: " + thrown.getMessage());
     }
 
     /**
-     * The number reaches the model, inside the tool's description, so a wrong one does not merely
-     * mis-guard — it tells the model to aim at a size that is not the one being enforced.
+     * The number reaches the model, inside the tool's description — so the one reported has to be
+     * the budget's, not a second computation of it that could drift.
      */
     @Test
-    void reportsTheCapItActuallyEnforces() {
-        assertEquals(95, new Rendering(ID, DESC, 100, 5).effectiveCap());
-    }
-
-    /**
-     * The direction most likely to be got backwards. A margin that widened the cap would make the
-     * guard weaker exactly where it was meant to be more cautious.
-     */
-    @Test
-    void marginTightensTheCapRatherThanLooseningIt() {
-        int exact = Tokens.count(RENDERED);
-
-        assertEquals(RENDERED, new Rendering(ID, DESC, exact, 0).render(TEMPLATE, ITEM));
-        assertThrows(IllegalArgumentException.class,
-                () -> new Rendering(ID, DESC, exact, 1).render(TEMPLATE, ITEM));
+    void reportsTheCapItsBudgetEnforces() {
+        assertEquals(95, new Rendering(ID, DESC, new TokenBudget(100, 5)).effectiveCap());
     }
 
     /** A cap nothing will bump into, for the cases that are not about size. */
     private static Rendering generous() {
-        return new Rendering(ID, DESC, 1_000, 0);
+        return new Rendering(ID, DESC, new TokenBudget(1_000, 0));
     }
 }

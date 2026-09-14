@@ -1,13 +1,13 @@
 package io.github.dbonkowska.dscribe.labs.s02e01;
 
-import io.github.dbonkowska.dscribe.labs.tokens.Tokens;
+import io.github.dbonkowska.dscribe.labs.tokens.TokenBudget;
 
 /**
  * Turns a candidate template into the text actually sent, and refuses one that will not fit.
  *
- * <p>Configured once from the lesson bundle and reused for every cycle: the placeholders, the cap
- * and the margin are facts about the exercise, where the template changes on each attempt. Nothing
- * here knows what the template says — only that it has somewhere to put a row.
+ * <p>Configured once from the lesson bundle and reused for every cycle: the placeholders and the
+ * budget are facts about the exercise, where the template changes on each attempt. Nothing here
+ * knows what the template says — only that it has somewhere to put a row.
  *
  * <p>Both refusals throw. {@code Toolbox} turns anything a tool handler throws into a tool result
  * the model reads, so a candidate that cannot be sent costs one model iteration and nothing from
@@ -19,18 +19,15 @@ final class Rendering {
     private final String descriptionPlaceholder;
 
     /**
-     * The largest a rendered prompt may measure here, already reduced by the margin.
-     *
-     * <p>The margin *tightens* the cap. We measure with an approximation of the judge's encoding,
-     * so the error worth guarding against is measuring a hair under what it will measure — the
-     * direction where a prompt looks sendable and is not.
+     * The arithmetic is shared; the refusal is not. What a model is told when its candidate is too
+     * long depends on what it was writing, so the message stays here and only the comparison moved.
      */
-    private final int effectiveCap;
+    private final TokenBudget budget;
 
-    Rendering(String idPlaceholder, String descriptionPlaceholder, int cap, int margin) {
+    Rendering(String idPlaceholder, String descriptionPlaceholder, TokenBudget budget) {
         this.idPlaceholder = idPlaceholder;
         this.descriptionPlaceholder = descriptionPlaceholder;
-        this.effectiveCap = cap - margin;
+        this.budget = budget;
     }
 
     /**
@@ -42,7 +39,7 @@ final class Rendering {
      * recomputed anywhere the two could drift apart.
      */
     int effectiveCap() {
-        return effectiveCap;
+        return budget.effectiveCap();
     }
 
     /**
@@ -77,11 +74,11 @@ final class Rendering {
                 .replace(idPlaceholder, item.id())
                 .replace(descriptionPlaceholder, item.description());
 
-        int measured = Tokens.count(rendered);
-        if (measured > effectiveCap) {
+        int measured = budget.measure(rendered);
+        if (!budget.fits(measured)) {
             throw new IllegalArgumentException(
                     "That prompt measures " + measured + " tokens once a row is filled in, and "
-                            + effectiveCap + " is the most that can be sent. Make it shorter.");
+                            + budget.effectiveCap() + " is the most that can be sent. Make it shorter.");
         }
         return rendered;
     }
