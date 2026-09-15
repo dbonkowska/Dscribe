@@ -71,10 +71,10 @@ final class SubmitTool {
     /**
      * Name and description come from the lesson bundle: they are prompt surface.
      *
-     * <p>The ids are narrowed to the map's own. They are a closed set, but unlike every earlier
-     * vocabulary they come from neither the bundle nor a constant — they exist only once the source
-     * has been read, which is why the schema is built from the map rather than from
-     * {@code TaskParams}.
+     * <p>The ids are narrowed to the map's own. A vocabulary read at run time is not new — s01e02
+     * narrowed to codes taken out of the hub's data — but these are not in the data at all: code
+     * generates them while merging, so they exist only once the source has been read, which is why
+     * the schema is built from the map rather than from {@code TaskParams}.
      */
     Tool<Selection> tool(String name, String description) {
         ObjectNode schema = SchemaUtils.from(Selection.class);
@@ -116,7 +116,9 @@ final class SubmitTool {
 
         // counted before sending, not from the responses kept: an attempt whose retries run out
         // throws after reaching the hub, and the next one must not reuse its label in the record
-        String label = "attempt " + (++sent);
+        // "submission", not "attempt": ResilientHub numbers its own retries of one call as attempts,
+        // and the record would otherwise read "attempt 2 · attempt 1"
+        String label = "submission " + (++sent);
         log.info("{}: {} entries, {} tokens", label, logs.lines().count(), measured);
 
         String response = hub.call(label, Map.of(spec.answerKey(), logs));

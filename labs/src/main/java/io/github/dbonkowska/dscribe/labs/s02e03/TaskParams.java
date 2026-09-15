@@ -2,6 +2,7 @@ package io.github.dbonkowska.dscribe.labs.s02e03;
 
 import io.github.dbonkowska.dscribe.labs.tokens.TokenBudget;
 
+import java.util.IllegalFormatException;
 import java.util.List;
 import java.util.Set;
 import java.util.TreeSet;
@@ -112,15 +113,15 @@ public record TaskParams(
         String rendered;
         try {
             rendered = lineFormat.formatted((Object[]) markers);
-        } catch (java.util.IllegalFormatException e) {
+        } catch (IllegalFormatException e) {
             throw new IllegalStateException(
                     "lineFormat is not a valid format string: " + e.getMessage(), e);
         }
         for (String marker : markers) {
             if (!rendered.contains(marker)) {
                 throw new IllegalStateException(
-                        "lineFormat must place all four values — date, time, severity, message, in that"
-                                + " order — and it drops at least one: " + lineFormat);
+                        "lineFormat must place all four values — date, time, severity and message — and"
+                                + " it drops at least one: " + lineFormat);
             }
         }
     }

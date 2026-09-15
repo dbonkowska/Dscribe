@@ -103,6 +103,26 @@ class EventMapTest {
         assertEquals(2, map.events().size());
     }
 
+    /**
+     * First and last are the earliest and latest times, not the first and last lines read. A source
+     * written slightly out of order would otherwise submit an event at a time it did not begin, and
+     * sort it past what it caused — well-formed, and wrong in a way nothing downstream can see.
+     *
+     * <p>Read order is chosen so both reading-order answers are wrong: the first line read is the
+     * latest, and the last line read is neither the earliest nor the latest.
+     */
+    @Test
+    void takesTheEarliestAndLatestTimesWhateverOrderTheLinesWereRead() {
+        EventMap map = parse(
+                "2030-01-01 10:40 HIGH pump stalled",
+                "2030-01-01 10:00 HIGH pump stalled",
+                "2030-01-01 10:20 HIGH pump stalled");
+
+        Event stalled = event(map, "pump stalled");
+        assertEquals(LocalDateTime.of(2030, 1, 1, 10, 0), stalled.first());
+        assertEquals(LocalDateTime.of(2030, 1, 1, 10, 40), stalled.last());
+    }
+
     /** Severity is part of what an event is — the same words at two levels are two things. */
     @Test
     void keepsTheSameMessageAtTwoSeveritiesApart() {

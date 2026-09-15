@@ -40,15 +40,21 @@ final class EventMap {
     /** Which entry a line was merged into, keyed the way merging is: severity, then message. */
     private final Map<List<String>, String> idByKey;
 
+    /** An entry by the id the model refers to it with. */
+    private final Map<String, Event> eventById;
+
     private EventMap(List<Line> lines, List<Event> events) {
         this.lines = lines;
         this.events = events;
 
         Map<List<String>, String> ids = new HashMap<>();
+        Map<String, Event> byId = new HashMap<>();
         for (Event event : events) {
             ids.put(key(event.severity(), event.message()), event.id());
+            byId.put(event.id(), event);
         }
         this.idByKey = Map.copyOf(ids);
+        this.eventById = Map.copyOf(byId);
     }
 
     /** The one definition of what makes two lines the same event. */
@@ -151,11 +157,12 @@ final class EventMap {
     String renderSubmission(List<String> ids, String lineFormat) {
         List<Event> chosen = new ArrayList<>(ids.size());
         for (String id : ids) {
-            chosen.add(events.stream()
-                    .filter(event -> event.id().equals(id))
-                    .findFirst()
-                    .orElseThrow(() -> new IllegalArgumentException(
-                            "There is no entry " + id + " in the map. Use only ids the map lists.")));
+            Event event = eventById.get(id);
+            if (event == null) {
+                throw new IllegalArgumentException(
+                        "There is no entry " + id + " in the map. Use only ids the map lists.");
+            }
+            chosen.add(event);
         }
 
         chosen.sort(Comparator.comparing(Event::first).thenComparing(Event::id));
@@ -194,24 +201,34 @@ final class EventMap {
     /** One event while its lines are still being counted. */
     private static final class Merging {
 
-        private final Line first;
+        private final String severity;
+        private final String message;
+        private LocalDateTime first;
         private LocalDateTime last;
         private int count;
 
-        Merging(Line first) {
-            this.first = first;
+        Merging(Line seen) {
+            this.severity = seen.severity();
+            this.message = seen.message();
         }
 
+        /**
+         * Earliest and latest rather than first and last read. A source in time order gives the same
+         * answer either way; one that is not would otherwise date an event by where its lines happen
+         * to sit in the file — and that assumption is cheaper to remove than to document.
+         */
         void add(Line line) {
-            // every sighting moves it, not only the second: the source is in time order, so the
-            // most recent line read is the latest one
-            last = line.minute();
+            if (first == null || line.minute().isBefore(first)) {
+                first = line.minute();
+            }
+            if (last == null || line.minute().isAfter(last)) {
+                last = line.minute();
+            }
             count++;
         }
 
         Event toEvent(String idFormat, int position) {
-            return new Event(idFormat.formatted(position), first.severity(), first.message(),
-                    first.minute(), last, count);
+            return new Event(idFormat.formatted(position), severity, message, first, last, count);
         }
     }
 }
