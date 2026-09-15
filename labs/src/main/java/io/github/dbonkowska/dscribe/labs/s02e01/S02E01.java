@@ -12,6 +12,7 @@ import io.github.dbonkowska.dscribe.labs.hub.ResilientHub;
 import io.github.dbonkowska.dscribe.labs.hub.RetryPolicy;
 import io.github.dbonkowska.dscribe.labs.hub.Sleeper;
 import io.github.dbonkowska.dscribe.labs.lesson.Lesson;
+import io.github.dbonkowska.dscribe.labs.tokens.TokenBudget;
 import io.github.dbonkowska.dscribe.llm.LlmClient;
 import io.github.dbonkowska.dscribe.tool.Toolbox;
 
@@ -97,8 +98,7 @@ public class S02E01 {
             Rendering rendering = new Rendering(
                     task.prompt().idPlaceholder(),
                     task.prompt().descriptionPlaceholder(),
-                    task.prompt().cap(),
-                    task.prompt().margin());
+                    new TokenBudget(task.prompt().cap(), task.prompt().margin()));
 
             CycleTool cycles = new CycleTool(hub, resilient, rendering, new CycleTool.Spec(
                     task.data().file(),
