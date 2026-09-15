@@ -52,7 +52,7 @@ class EventMapTest {
                 "2030-01-01 10:05 LOW fan ok",
                 "not a line at all"));
 
-        assertTrue(thrown.getMessage().contains("3"),
+        assertTrue(thrown.getMessage().contains("Line 3"),
                 () -> "it has to name the line: " + thrown.getMessage());
     }
 
@@ -63,7 +63,9 @@ class EventMapTest {
                 "2030-01-01 10:00 HIGH pump stalled",
                 "2030-01-01 ten LOW fan ok"));
 
-        assertTrue(thrown.getMessage().contains("2"),
+        // "Line 2" rather than "2": the message quotes the raw line, whose date already contains a 2,
+        // so a bare digit would pass whatever number was reported
+        assertTrue(thrown.getMessage().contains("Line 2"),
                 () -> "it has to name the line: " + thrown.getMessage());
     }
 

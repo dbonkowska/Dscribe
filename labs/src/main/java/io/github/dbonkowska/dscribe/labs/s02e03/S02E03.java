@@ -27,7 +27,7 @@ import java.util.regex.Pattern;
 /**
  * The first lesson whose input does not fit in front of the model. Code reduces it to a map of
  * distinct entries and makes the first submission itself; the model only ever sees the map, what
- * the technicians said, and whatever raw lines it asks to look at — and its whole job is choosing
+ * the hub replied, and whatever raw lines it asks to look at — and its whole job is choosing
  * which entries belong in a text too small to hold them all.
  *
  * <p>Which makes the run's cost rounds of feedback rather than tokens of input. The source is read
@@ -41,12 +41,11 @@ public class S02E03 {
      * which moves it had already made, and here there is no such state to track — every submission
      * restates the whole selection, and the reply to it is in the conversation.
      *
-     * <p>The flag was first earned without it. A first attempt of the highest two severities, built
-     * by code, was accepted outright — and so was the highest alone — so the model was never called.
-     * The loop was then exercised on purpose from a first attempt of the wrong severity, and this
-     * model earned the flag in four iterations and two submissions: it zoomed around the one
-     * component the technicians named, all five windows in a single turn, overshot the budget once
-     * — refused locally, nothing sent — removed entries, and was accepted at 1373 of 1425 tokens.
+     * <p>The flag was first earned without it: the attempt code builds was accepted, and the model was
+     * never called. The loop was then exercised on purpose, from a first attempt chosen to fall
+     * short, and this model earned the flag in four iterations and two submissions — zooming several
+     * windows in one turn before submitting, and overshooting the budget once, which was refused
+     * locally with nothing sent. The run's specifics live with the lesson, not here.
      *
      * <p>A preference, not the last word — {@code -Dopenrouter.model}, {@code OPENROUTER_MODEL}
      * and {@code openrouter.model} each still win over it.
@@ -55,7 +54,7 @@ public class S02E03 {
 
     /**
      * Counts model round-trips. A round here is a zoom or a submission, and the lesson expects
-     * several submissions before the technicians are satisfied — so this is sized for looking
+     * several submissions before the hub accepts one — so this is sized for looking
      * around between them, and a cap that ended the run mid-refinement would waste every reply
      * already earned.
      */
@@ -106,8 +105,8 @@ public class S02E03 {
                     transcript);
 
             // Read fresh every run, never from a cached copy: the source is dated relative to the
-            // day it is fetched, so yesterday's copy submits a date the technicians no longer
-            // expect. As bytes rather than as text so the record carries its size and not its body
+            // day it is fetched, so yesterday's copy submits a date the hub no longer
+            // expects. As bytes rather than as text so the record carries its size and not its body
             // — the whole point of this lesson is that the body is too large to keep anywhere.
             EventMap map = EventMap.parse(
                     new String(hub.downloadBytes(task.dataFile()), StandardCharsets.UTF_8),
@@ -129,7 +128,7 @@ public class S02E03 {
 
             // The first attempt is code's. What it contains is decided by a fixed rule, so there is
             // nothing for a model to judge yet; making it here saves a round, and hands the model
-            // what it actually needs to start from — the technicians' first reply.
+            // what it actually needs to start from — the hub's first reply.
             SubmitTool.Attempt first = submit.submit(firstIds);
 
             Matcher earlyFlag = Pattern.compile(task.flagPattern()).matcher(first.response());

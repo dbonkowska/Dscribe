@@ -100,7 +100,7 @@ final class EventMap {
         }
         try {
             LocalDateTime minute = LocalDateTime.parse(m.group("date") + " " + m.group("time"), MINUTE);
-            return new Line(number, minute, m.group("severity"), m.group("message"), raw);
+            return new Line(minute, m.group("severity"), m.group("message"), raw);
         } catch (DateTimeParseException e) {
             throw new IllegalArgumentException(
                     "Line " + number + " has a date or time that cannot be read as YYYY-MM-DD HH:MM"
