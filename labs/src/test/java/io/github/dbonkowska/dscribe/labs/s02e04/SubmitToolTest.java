@@ -101,6 +101,55 @@ class SubmitToolTest {
         assertTrue(thrown.getMessage().contains("other"), thrown::getMessage);
     }
 
+    /**
+     * A value containing the right shape is not a value of the right shape. {@code find} would pass
+     * this one — five digits hold four — and the hub would reject it as a wrong answer, which reads
+     * as the model having found the wrong thing rather than having copied it badly.
+     */
+    @Test
+    void refusesAValueMatchingItsFormatOnlyInPartWithoutSendingAnything(@TempDir Path root) {
+        Tool<SubmitTool.Submission> tool = submitTool(root).tool("send", "sends");
+
+        IllegalArgumentException thrown = assertThrows(IllegalArgumentException.class,
+                () -> tool.handler().apply(submission(value("when", "20300"), value("word", "abc"))));
+
+        assertEquals(List.of(), sent);
+        assertTrue(thrown.getMessage().contains("when") && thrown.getMessage().contains("[0-9]{4}"),
+                () -> "the model has to be told which field is wrong and what it must look like: " + thrown.getMessage());
+    }
+
+    /**
+     * Empty means not found yet — sent as that, rather than refused into a well-formed guess the
+     * hub would reject as a wrong answer.
+     */
+    @Test
+    void sendsAnEmptyValueWithoutCheckingItsFormat(@TempDir Path root) {
+        submitTool(root).tool("send", "sends").handler()
+                .apply(submission(value("when", ""), value("word", "abc")));
+
+        assertEquals(List.of(Map.of("when", "", "word", "abc")), sent);
+    }
+
+    /** Nothing found at all is nothing worth a round at the hub. */
+    @Test
+    void refusesAnAnswerWithEveryValueEmptyWithoutSendingAnything(@TempDir Path root) {
+        Tool<SubmitTool.Submission> tool = submitTool(root).tool("send", "sends");
+
+        assertThrows(IllegalArgumentException.class,
+                () -> tool.handler().apply(submission(value("when", ""), value("word", ""))));
+
+        assertEquals(List.of(), sent);
+    }
+
+    /**
+     * What the runner writes into the tool description. It comes from the same list the check reads,
+     * so the format the model is told and the one it is held to cannot drift apart.
+     */
+    @Test
+    void describesEachFieldsFormatFromTheListItIsCheckedAgainst(@TempDir Path root) {
+        assertEquals("when: [0-9]{4}\nword: [a-z]+", submitTool(root).formats());
+    }
+
     /** A reported flag is checked against these, so order and completeness matter. */
     @Test
     void keepsEveryResponseTheHubReturned(@TempDir Path root) {

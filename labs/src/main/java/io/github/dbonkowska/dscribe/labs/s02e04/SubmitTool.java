@@ -13,6 +13,8 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 /**
  * Sends an answer, after making sure it is one.
@@ -51,9 +53,15 @@ final class SubmitTool {
 
     private int sent;
 
+    /** Compiled once, keyed by field name; {@code TaskParams} has already refused one that would not. */
+    private final Map<String, Pattern> patterns = new LinkedHashMap<>();
+
     SubmitTool(ResilientHub hub, Spec spec) {
         this.hub = hub;
         this.spec = spec;
+        for (TaskParams.Field field : spec.fields()) {
+            patterns.put(field.name(), Pattern.compile(field.pattern()));
+        }
     }
 
     /** Name and description come from the lesson bundle: they are prompt surface. */
@@ -69,6 +77,17 @@ final class SubmitTool {
 
     List<String> responses() {
         return List.copyOf(responses);
+    }
+
+    /**
+     * One line per field, {@code name: pattern}, for the runner to write into the tool description —
+     * read from the same list the check reads, so the format the model is told and the one it is held
+     * to cannot drift apart.
+     */
+    String formats() {
+        return spec.fields().stream()
+                .map(field -> field.name() + ": " + field.pattern())
+                .collect(Collectors.joining("\n"));
     }
 
     /**
@@ -98,7 +117,24 @@ final class SubmitTool {
                         field.name() + " is missing. Nothing was sent. Every submission carries every"
                                 + " field: " + names() + ".");
             }
-            answer.put(field.name(), byField.get(field.name()));
+            String value = byField.get(field.name());
+
+            // matches, not find: a value containing the right shape is not a value of that shape, and
+            // the hub would reject it as a wrong answer rather than a badly copied one. An empty value
+            // skips the check — it says "not found yet", and is sent as that rather than guessed at.
+            if (!value.isEmpty() && !patterns.get(field.name()).matcher(value).matches()) {
+                throw new IllegalArgumentException(
+                        field.name() + " is " + value + ", which does not match its format "
+                                + field.pattern() + ". Nothing was sent. Correct it, or send it empty if"
+                                + " it has not been found yet.");
+            }
+            answer.put(field.name(), value);
+        }
+
+        if (answer.values().stream().allMatch(String::isEmpty)) {
+            throw new IllegalArgumentException(
+                    "Every field is empty, so there is nothing to send. Nothing was sent. Keep searching,"
+                            + " and submit once at least one value has been found.");
         }
 
         // counted before sending, not from the responses kept: a submission whose retries run out
