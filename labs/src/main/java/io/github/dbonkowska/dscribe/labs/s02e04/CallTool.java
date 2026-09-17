@@ -3,11 +3,14 @@ package io.github.dbonkowska.dscribe.labs.s02e04;
 import io.github.dbonkowska.dscribe.schema.SchemaUtils;
 import io.github.dbonkowska.dscribe.tool.Tool;
 import io.github.dbonkowska.dscribe.tool.ToolOutput;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.node.ArrayNode;
 import tools.jackson.databind.node.ObjectNode;
 
 import java.util.List;
+import java.util.Map;
 
 /**
  * Hands the model an API it learns about at run time: it picks an action and writes the
@@ -55,6 +58,15 @@ final class CallTool {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
+    /**
+     * Keys the model may not write, and why. {@code action} would contradict the narrowed verb, so the
+     * transcript's label and the API's effect could disagree — and one merge order would let the
+     * parameters name an action the allowlist left out. {@code apikey} is merged in by the client.
+     */
+    private static final Map<String, String> RESERVED = Map.of(
+            "action", "the action is chosen by the action argument, not inside the parameters",
+            "apikey", "the key is added when the call is sent");
+
     private final Post hub;
     private final Spec spec;
 
@@ -84,9 +96,40 @@ final class CallTool {
                     "No action " + action + ". Nothing was sent. Call one of " + spec.actions() + ".");
         }
 
-        ObjectNode body = (ObjectNode) MAPPER.readTree(params);
+        ObjectNode body = parse(params);
+
+        // checked before the action is merged, never after: merging first would overwrite the
+        // model's key silently, and whatever it meant by it would go unrefused and unrecorded
+        for (Map.Entry<String, String> reserved : RESERVED.entrySet()) {
+            if (body.has(reserved.getKey())) {
+                throw new IllegalArgumentException(
+                        "params must not contain " + reserved.getKey() + " — " + reserved.getValue()
+                                + ". Nothing was sent. Remove it and call again.");
+            }
+        }
         body.put("action", action);
 
         return ToolOutput.of(hub.post("call · " + action, spec.path(), body));
+    }
+
+    /**
+     * Refused as text the model can act on rather than as a parse or cast failure. Both would reach
+     * it as a tool result; only this one says what to send instead.
+     */
+    private static ObjectNode parse(String params) {
+        JsonNode node;
+        try {
+            node = MAPPER.readTree(params);
+        } catch (JacksonException e) {
+            throw new IllegalArgumentException(
+                    "params is not valid JSON: " + e.getOriginalMessage()
+                            + ". Nothing was sent. Write the parameters as a JSON object, {} for none.", e);
+        }
+        if (node instanceof ObjectNode object) {
+            return object;
+        }
+        throw new IllegalArgumentException(
+                "params must be a JSON object, not " + node.getNodeType()
+                        + ". Nothing was sent. Write the parameters as a JSON object, {} for none.");
     }
 }

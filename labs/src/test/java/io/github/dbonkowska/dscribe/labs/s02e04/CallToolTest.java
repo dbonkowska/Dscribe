@@ -87,4 +87,49 @@ class CallToolTest {
         assertTrue(thrown.getMessage().contains("wipe") && thrown.getMessage().contains("find"),
                 () -> "the model has to be told what it asked for and what it may ask for: " + thrown.getMessage());
     }
+
+    /**
+     * Refused as something the model can fix, not as a cast failure — both reach it as text, but
+     * only one says what to send instead.
+     */
+    @Test
+    void refusesParametersThatAreNotAnObjectWithoutPostingAnything() {
+        IllegalArgumentException thrown = assertThrows(IllegalArgumentException.class,
+                () -> tool.handler().apply(new CallTool.Call("find", "[1,2]")));
+
+        assertEquals(List.of(), posted);
+        assertTrue(thrown.getMessage().contains("object"), thrown::getMessage);
+    }
+
+    @Test
+    void refusesParametersThatAreNotJsonWithoutPostingAnything() {
+        assertThrows(IllegalArgumentException.class,
+                () -> tool.handler().apply(new CallTool.Call("find", "not json")));
+
+        assertEquals(List.of(), posted);
+    }
+
+    /**
+     * The smuggled verb. The narrowed action says one thing and the parameters another; merged
+     * either way round, the transcript and the API would disagree about what was called — and one
+     * order lets the parameters reach an action the allowlist left out.
+     */
+    @Test
+    void refusesAnActionInsideTheParametersWithoutPostingAnything() {
+        IllegalArgumentException thrown = assertThrows(IllegalArgumentException.class,
+                () -> tool.handler().apply(new CallTool.Call("find", "{\"action\":\"wipe\"}")));
+
+        assertEquals(List.of(), posted);
+        assertTrue(thrown.getMessage().contains("action"), thrown::getMessage);
+    }
+
+    /** The key is merged in by the client; one written by the model is at best a wrong one. */
+    @Test
+    void refusesAnApiKeyInsideTheParametersWithoutPostingAnything() {
+        IllegalArgumentException thrown = assertThrows(IllegalArgumentException.class,
+                () -> tool.handler().apply(new CallTool.Call("find", "{\"apikey\":\"k\"}")));
+
+        assertEquals(List.of(), posted);
+        assertTrue(thrown.getMessage().contains("apikey"), thrown::getMessage);
+    }
 }
