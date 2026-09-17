@@ -40,7 +40,10 @@ public class S02E04 {
     /**
      * The lesson's own suggestion: the work is finding and copying facts, not reasoning over them,
      * and a loop that may take a dozen or more rounds pays a stronger tier's latency on every one.
-     * Not yet earned — re-pinned, with what it cost, once a run gets the flag.
+     *
+     * <p>Earned the flag on the first run, in nine rounds: three searches, three fetches — each by the
+     * stable id, so the positional-id guard never fired — and a single submission, accepted whole. The
+     * partial-answer path went unexercised: the first answer was already complete.
      *
      * <p>A preference, not the last word — {@code -Dopenrouter.model}, {@code OPENROUTER_MODEL}
      * and {@code openrouter.model} each still win over it.
