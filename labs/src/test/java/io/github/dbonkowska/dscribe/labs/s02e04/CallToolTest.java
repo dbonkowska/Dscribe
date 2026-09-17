@@ -2,8 +2,11 @@ package io.github.dbonkowska.dscribe.labs.s02e04;
 
 import io.github.dbonkowska.dscribe.tool.Tool;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.node.ObjectNode;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -28,6 +31,9 @@ class CallToolTest {
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private static final String PATH = "/x/api";
     private static final List<String> ACTIONS = List.of("find", "open");
+
+    /** A stable id in the shape the API uses: 32 hex characters, invented. */
+    private static final String HASH = "0123456789abcdef0123456789abcdef";
 
     /** One post the fake received. */
     private record Posted(String label, String path, JsonNode body) {}
@@ -121,6 +127,44 @@ class CallToolTest {
 
         assertEquals(List.of(), posted);
         assertTrue(thrown.getMessage().contains("action"), thrown::getMessage);
+    }
+
+    /**
+     * The positional id. It renumbers on every call, so one copied from an earlier reply names a
+     * different item by the time it is sent — and the API answers with that item, without an error.
+     * The model then reasons confidently from something it never meant to read.
+     */
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "{\"ids\":126}",
+            "{\"ids\":\"126\"}",
+            // the positional id second, so a check that reads only the first element lets it through
+            "{\"ids\":[\"" + HASH + "\",126]}"})
+    void refusesAPositionalIdWithoutPostingAnything(String params) {
+        IllegalArgumentException thrown = assertThrows(IllegalArgumentException.class,
+                () -> tool.handler().apply(new CallTool.Call("open", params)));
+
+        assertEquals(List.of(), posted);
+        assertTrue(thrown.getMessage().contains("ids") && thrown.getMessage().contains("32"),
+                () -> "the model has to be told which id to use instead: " + thrown.getMessage());
+    }
+
+    /**
+     * The stable id passes whatever it happens to be made of — including one of all digits, which a
+     * rule of "no digit-only ids" would refuse. Only {@code ids} is guarded: a page number is a number.
+     */
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "{\"ids\":[\"" + HASH + "\"]}",
+            "{\"ids\":\"" + HASH + "\"}",
+            "{\"ids\":\"12345678901234567890123456789012\"}",
+            "{\"page\":3}"})
+    void postsStableIdsAndOtherNumbersUnchanged(String params) {
+        tool.handler().apply(new CallTool.Call("open", params));
+
+        ObjectNode expected = (ObjectNode) MAPPER.readTree(params);
+        expected.put("action", "open");
+        assertEquals(List.of(expected), posted.stream().map(Posted::body).toList());
     }
 
     /** The key is merged in by the client; one written by the model is at best a wrong one. */

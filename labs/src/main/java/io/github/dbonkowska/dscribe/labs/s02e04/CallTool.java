@@ -63,6 +63,20 @@ final class CallTool {
      * transcript's label and the API's effect could disagree — and one merge order would let the
      * parameters name an action the allowlist left out. {@code apikey} is merged in by the client.
      */
+    /**
+     * Where the API takes ids to fetch, and how long its stable ones are. Mechanism rather than task
+     * content — they name the API's parameter shape, not anything the exercise asks about — so they
+     * live here, beside the one rule that reads them.
+     *
+     * <p>The API accepts two kinds of id under this key: a positional one, and a stable hash. The
+     * positional one renumbers on every call, because the source grows while the run reads it, and an
+     * id copied from an earlier reply then names a different item — which the API returns without an
+     * error. So it is refused here, before the wrong item is ever read, rather than left to a prompt
+     * to discourage.
+     */
+    private static final String IDS = "ids";
+    private static final int STABLE_ID_LENGTH = 32;
+
     private static final Map<String, String> RESERVED = Map.of(
             "action", "the action is chosen by the action argument, not inside the parameters",
             "apikey", "the key is added when the call is sent");
@@ -107,9 +121,44 @@ final class CallTool {
                                 + ". Nothing was sent. Remove it and call again.");
             }
         }
+        refusePositionalIds(body.get(IDS));
         body.put("action", action);
 
         return ToolOutput.of(hub.post("call · " + action, spec.path(), body));
+    }
+
+    /**
+     * Every id under {@link #IDS}, whether one value or an array of them — each element, not only the
+     * first, since a list mixing both kinds is exactly what a model copying from two replies writes.
+     */
+    private static void refusePositionalIds(JsonNode ids) {
+        if (ids == null) {
+            return;
+        }
+        for (JsonNode id : ids.isArray() ? ids.values() : List.of(ids)) {
+            if (isPositional(id)) {
+                throw new IllegalArgumentException(
+                        IDS + " contains " + id + ", a positional id. Those renumber on every call, so"
+                                + " this one would fetch a different item than the one it was copied from."
+                                + " Nothing was sent. Use the " + STABLE_ID_LENGTH + "-character id instead.");
+            }
+        }
+    }
+
+    /**
+     * An integer, or a digit-only string that is not a stable id's length. Length and digits
+     * together rather than "all digits": a stable id is hex, and one that happens to contain no
+     * letters is still stable.
+     */
+    private static boolean isPositional(JsonNode id) {
+        if (id.isIntegralNumber()) {
+            return true;
+        }
+        if (id.isString()) {
+            String text = id.stringValue();
+            return !text.isEmpty() && text.length() != STABLE_ID_LENGTH && text.chars().allMatch(Character::isDigit);
+        }
+        return false;
     }
 
     /**
