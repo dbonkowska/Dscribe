@@ -65,7 +65,36 @@ class TaskParamsTest {
                 List.of(new TaskParams.Field("when", "[0-9]{4}"), new TaskParams.Field("word", "[a-z]+")),
                 params.fields());
         assertEquals("/x/api", params.api().path());
+        assertEquals("wipe", params.api().resetAction());
+        assertEquals("about", params.api().helpAction());
         assertEquals("send", params.submit().name());
+    }
+
+    /**
+     * The runner fills the submit description's one slot with the formats the check enforces.
+     * {@code String.formatted} drops an argument it has nowhere to put, so a description that lost
+     * its slot would tell the model nothing about formats — and the refusals that followed would read
+     * as the model copying badly.
+     */
+    @Test
+    void refusesASubmitDescriptionWithNoSlotForTheFormats() {
+        String props = COMPLETE.replace("submit.description=sends %s", "submit.description=sends");
+
+        RuntimeException thrown = assertThrows(RuntimeException.class,
+                () -> new JavaPropsMapper().readValue(props, TaskParams.class));
+
+        assertTrue(thrown.getMessage().contains("submit.description"), thrown::getMessage);
+    }
+
+    /** A second placeholder has no argument, and would throw only once the runner formats it. */
+    @Test
+    void refusesASubmitDescriptionThatCannotBeFormatted() {
+        String props = COMPLETE.replace("submit.description=sends %s", "submit.description=sends %s at 5%");
+
+        RuntimeException thrown = assertThrows(RuntimeException.class,
+                () -> new JavaPropsMapper().readValue(props, TaskParams.class));
+
+        assertTrue(thrown.getMessage().contains("submit.description"), thrown::getMessage);
     }
 
     /**

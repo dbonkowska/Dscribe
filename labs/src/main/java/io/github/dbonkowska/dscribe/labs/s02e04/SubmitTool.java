@@ -95,14 +95,27 @@ final class SubmitTool {
      * one of them is something to correct and send again.
      */
     private String submit(List<Value> values) {
+        // A provider that ignores the schema can leave either of these out. Refused as something the
+        // model can supply, rather than reaching it as "Tool failed: NullPointerException".
+        if (values == null) {
+            throw new IllegalArgumentException(
+                    "No values were given. Nothing was sent. Every submission carries every field: "
+                            + names() + ".");
+        }
+
         Map<String, String> byField = new LinkedHashMap<>();
         for (Value value : values) {
-            if (spec.fields().stream().noneMatch(field -> field.name().equals(value.field()))) {
+            if (!patterns.containsKey(value.field())) {
                 throw new IllegalArgumentException(
                         "No field " + value.field() + ". Nothing was sent. The answer's fields are "
                                 + names() + ".");
             }
-            if (byField.put(value.field(), value.value()) != null) {
+            if (value.value() == null) {
+                throw new IllegalArgumentException(
+                        value.field() + " has no value. Nothing was sent. Give every field a value, an"
+                                + " empty string if it has not been found yet.");
+            }
+            if (byField.putIfAbsent(value.field(), value.value()) != null) {
                 throw new IllegalArgumentException(
                         value.field() + " was given more than once. Nothing was sent. Give each field"
                                 + " exactly once.");

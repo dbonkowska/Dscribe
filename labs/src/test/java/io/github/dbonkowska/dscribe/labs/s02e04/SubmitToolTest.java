@@ -150,6 +150,31 @@ class SubmitToolTest {
         assertEquals("when: [0-9]{4}\nword: [a-z]+", submitTool(root).formats());
     }
 
+    /**
+     * A provider that ignores the schema can leave a value out. Refused as a missing value the model
+     * can supply, not as a {@code NullPointerException} that tells it nothing.
+     */
+    @Test
+    void refusesAFieldWithNoValueWithoutSendingAnything(@TempDir Path root) {
+        Tool<SubmitTool.Submission> tool = submitTool(root).tool("send", "sends");
+
+        IllegalArgumentException thrown = assertThrows(IllegalArgumentException.class,
+                () -> tool.handler().apply(submission(value("when", "2030"), value("word", null))));
+
+        assertEquals(List.of(), sent);
+        assertTrue(thrown.getMessage().contains("word"), thrown::getMessage);
+    }
+
+    @Test
+    void refusesASubmissionWithNoValuesWithoutSendingAnything(@TempDir Path root) {
+        Tool<SubmitTool.Submission> tool = submitTool(root).tool("send", "sends");
+
+        assertThrows(IllegalArgumentException.class,
+                () -> tool.handler().apply(new SubmitTool.Submission(null)));
+
+        assertEquals(List.of(), sent);
+    }
+
     /** A reported flag is checked against these, so order and completeness matter. */
     @Test
     void keepsEveryResponseTheHubReturned(@TempDir Path root) {

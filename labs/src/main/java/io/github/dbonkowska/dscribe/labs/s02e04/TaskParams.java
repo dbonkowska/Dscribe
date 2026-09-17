@@ -1,6 +1,7 @@
 package io.github.dbonkowska.dscribe.labs.s02e04;
 
 import java.util.HashSet;
+import java.util.IllegalFormatException;
 import java.util.List;
 import java.util.Set;
 import java.util.regex.Pattern;
@@ -69,6 +70,37 @@ public record TaskParams(
             }
         }
         fields = List.copyOf(fields);
+
+        requireFormatsSlot(submit);
+    }
+
+    /**
+     * Checked by filling it rather than looking for {@code %s}: {@code String.formatted} ignores an
+     * argument it has nowhere to put, so a description without its slot renders cleanly and the model
+     * is never told the formats — and a search for {@code %s} would be fooled by {@code %%s}. One
+     * marker either comes out or the slot is missing. A stray placeholder with no argument throws here
+     * too, instead of in the runner after the transcript has opened.
+     */
+    private static void requireFormatsSlot(ToolPrompt submit) {
+        if (submit == null || submit.description() == null) {
+            throw new IllegalStateException(
+                    "submit.description is missing. Set submit.name and submit.description in the lesson's"
+                            + " task.properties.");
+        }
+        String marker = "<<formats>>";
+        String rendered;
+        try {
+            rendered = submit.description().formatted(marker);
+        } catch (IllegalFormatException e) {
+            throw new IllegalStateException(
+                    "submit.description is not a valid format string: " + e.getMessage()
+                            + ". Write a literal percent sign as %%.", e);
+        }
+        if (!rendered.contains(marker)) {
+            throw new IllegalStateException(
+                    "submit.description must contain one %s, where the runner writes each field's format;"
+                            + " without it the model is never told the formats it is held to.");
+        }
     }
 
     private static void require(String value, String key) {

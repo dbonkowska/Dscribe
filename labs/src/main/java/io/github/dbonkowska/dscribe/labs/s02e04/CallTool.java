@@ -59,11 +59,6 @@ final class CallTool {
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
     /**
-     * Keys the model may not write, and why. {@code action} would contradict the narrowed verb, so the
-     * transcript's label and the API's effect could disagree — and one merge order would let the
-     * parameters name an action the allowlist left out. {@code apikey} is merged in by the client.
-     */
-    /**
      * Where the API takes ids to fetch, and how long its stable ones are. Mechanism rather than task
      * content — they name the API's parameter shape, not anything the exercise asks about — so they
      * live here, beside the one rule that reads them.
@@ -77,6 +72,11 @@ final class CallTool {
     private static final String IDS = "ids";
     private static final int STABLE_ID_LENGTH = 32;
 
+    /**
+     * Keys the model may not write, and why. {@code action} would contradict the narrowed verb, so the
+     * transcript's label and the API's effect could disagree — and one merge order would let the
+     * parameters name an action the allowlist left out. {@code apikey} is merged in by the client.
+     */
     private static final Map<String, String> RESERVED = Map.of(
             "action", "the action is chosen by the action argument, not inside the parameters",
             "apikey", "the key is added when the call is sent");
