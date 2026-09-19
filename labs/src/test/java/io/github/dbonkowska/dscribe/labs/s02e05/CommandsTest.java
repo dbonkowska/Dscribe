@@ -179,6 +179,10 @@ class CommandsTest {
 
         assertTrue(message.contains("alt"),
                 () -> "it has to name the prerequisite that arrived too late: " + message);
+        // both halves of the ordering rule name the prerequisite, so without this the two tests
+        // cannot tell each other's branch apart and either would pass on the wrong refusal
+        assertTrue(message.contains("after instruction"),
+                () -> "it has to say the entry came too late, not that it was missing: " + message);
     }
 
     /** The degenerate half of the same rule: never set at all, rather than set too late. */
@@ -188,6 +192,8 @@ class CommandsTest {
 
         assertTrue(message.contains("alt"),
                 () -> "it has to name the prerequisite that was never set: " + message);
+        assertTrue(message.contains("never sets it"),
+                () -> "it has to say the entry was missing, not that it came too late: " + message);
     }
 
     /**
