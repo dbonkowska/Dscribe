@@ -53,16 +53,36 @@ public class S02E05 {
      * The planning half is ordering a dozen short commands against documentation it has just been
      * handed — following instructions rather than reasoning at length.
      *
+     * <p>Earned the flag on the second run, in seventeen turns: sixteen sequences written, eight of
+     * them refused here and never sent. One refusal was a command the bundle deliberately keeps out
+     * of the allowlist, because it resets the configuration and would have discarded everything set
+     * before it. Three were the ordering precondition — the terminal command written before the
+     * things it depends on. The reserved command was never contested: every sequence carried it
+     * exactly as it was handed over.
+     *
+     * <p>The first run failed for a reason no guard here addresses. The model described its plan in
+     * prose, with a destination it had invented rather than the one it was given, and never called
+     * the tool at all — so nothing was validated, because nothing was submitted. Two sentences in
+     * {@code system.md} fixed it. That is this lesson's own subject arriving in the one place the
+     * framework has no say over.
+     *
      * <p>A preference, not the last word — {@code -Dopenrouter.model}, {@code OPENROUTER_MODEL} and
      * {@code openrouter.model} each still win over it.
      */
     private static final String MODEL = "google/gemini-3-flash-preview";
 
     /**
-     * The delegated half, and the load-bearing one. Recognising the landmark is easy; counting
-     * which cell of a grid it sits in is not, and a miscount here produces a perfectly well-formed
+     * The delegated half, and the load-bearing one. Recognising the target is easy; counting which
+     * cell of a grid it sits in is not, and a miscount here produces a perfectly well-formed
      * sequence that acts somewhere else. Pinned separately through {@code openrouter.vision.model}
      * so an override meant for the planning model cannot reach it.
+     *
+     * <p>Read the sector this lesson needed on the first attempt, both times: the two readings
+     * agreed with each other and with the grid, so the second one bought nothing either run. It is
+     * kept because what it guards against — a reading that is unsteady rather than confidently
+     * wrong — is invisible until it happens, and the run that pays for it is the one that would
+     * otherwise submit a coordinate nothing confirmed. Worth revisiting on a finer grid than this
+     * lesson's, where counting is harder and a disagreement is likelier to be real.
      */
     private static final String VISION_MODEL = "google/gemini-3-flash-preview";
 
