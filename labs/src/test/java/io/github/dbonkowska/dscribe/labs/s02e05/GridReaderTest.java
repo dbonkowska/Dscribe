@@ -107,6 +107,8 @@ class GridReaderTest {
         assertEquals(6, calls, "three attempts of two readings each, and no more");
         assertTrue(thrown.getMessage().toLowerCase().contains("target"),
                 () -> "it has to say the two readings differed on the target: " + thrown.getMessage());
+        assertTrue(thrown.getMessage().contains("6 readings"),
+                () -> "the message reports what was actually spent: " + thrown.getMessage());
     }
 
     /**
@@ -121,6 +123,9 @@ class GridReaderTest {
         IllegalStateException thrown = assertThrows(IllegalStateException.class, reader::read);
 
         assertEquals(3, calls, "a first reading that fails ends its attempt");
+        assertTrue(thrown.getMessage().contains("3 readings"),
+                () -> "a short-circuited attempt costs one reading, and the message must not claim"
+                        + " two: " + thrown.getMessage());
         assertTrue(thrown.getMessage().contains("8") && thrown.getMessage().contains("9"),
                 () -> "it has to say what was counted and what was expected: " + thrown.getMessage());
     }

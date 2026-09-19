@@ -45,6 +45,17 @@ public record TaskParams(
         require(verifyTask, "verifyTask");
         require(flagPattern, "flagPattern");
         require(docUrl, "docUrl");
+
+        // compiled here rather than where it is used: left to the runner it would throw after two
+        // fetches and up to six delegated readings, and possibly after the hub had already accepted
+        // the sequence — a result earned and then thrown away over a typo in a file
+        try {
+            Pattern.compile(flagPattern);
+        } catch (PatternSyntaxException e) {
+            throw new IllegalStateException(
+                    "flagPattern is not a valid regex: " + e.getDescription()
+                            + ". Remember every backslash is doubled in a properties file.", e);
+        }
         requirePresent(image, "image", "image.file and image.mediaType");
         requirePresent(grid, "grid", "grid.columns, grid.rows and grid.readAttempts");
         requirePresent(dsl, "dsl", "dsl.shapes.1.id, dsl.terminal, dsl.reservedShape and the rest");

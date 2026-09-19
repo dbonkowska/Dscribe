@@ -261,6 +261,17 @@ public class S02E05 {
                             + " has already decided. Rendering it dropped one, which no reader of the"
                             + " prompt would see and every submission would then be refused for.");
         }
+
+        // Order is checkable here where a general render-check cannot manage it: the two slots have
+        // distinct roles and distinct markers, so their positions in the output say which is which.
+        // A template written with %2$s before %1$s fills both and swaps them — the model would be
+        // handed a coordinate where the documentation belongs and a page of prose as its command.
+        if (probe.indexOf(documentation) > probe.indexOf(sector)) {
+            throw new IllegalStateException(
+                    "user.md renders its slots the wrong way round: the documentation belongs in the"
+                            + " first, the assembled command in the second. Both are filled, so nothing"
+                            + " downstream would notice.");
+        }
         return template;
     }
 

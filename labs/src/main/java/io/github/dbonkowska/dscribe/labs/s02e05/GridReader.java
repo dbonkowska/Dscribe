@@ -81,9 +81,11 @@ final class GridReader {
      */
     Reading read() {
         String disagreement = null;
+        int readings = 0;
 
         for (int attempt = 1; attempt <= grid.readAttempts(); attempt++) {
             Reading first = read.read();
+            readings++;
 
             // a first reading that already disagrees with the known grid is doomed whatever the
             // second says, and this is a loop that spends per turn: the attempt ends here
@@ -94,6 +96,7 @@ final class GridReader {
             }
 
             Reading second = read.read();
+            readings++;
             disagreement = disagreementIn(first, second);
 
             if (disagreement == null) {
@@ -104,24 +107,26 @@ final class GridReader {
             log.info("reading rejected on attempt {}: {}", attempt, disagreement);
         }
 
+        // the readings are counted rather than derived from the attempts: a short-circuited attempt
+        // costs one reading, not two, and a diagnostic that overstates what was spent is the small
+        // end of keeping a second count beside the one that actually knows
         throw new IllegalStateException(
-                "No pair of readings agreed, after " + grid.readAttempts()
-                        + " attempts of two readings each. The last disagreed because " + disagreement
+                "No pair of readings agreed, after " + grid.readAttempts() + " attempts and "
+                        + readings + " readings. The last disagreed because " + disagreement
                         + ". Nothing was submitted: a coordinate nothing confirms would render a"
                         + " well-formed sequence that acts in the wrong place.");
     }
 
     /**
-     * Both readings are checked against the grid, then against each other.
+     * The second reading against the grid, then the two against each other.
+     *
+     * <p>The first has already been checked by the caller, which ends the attempt when it fails, so
+     * checking it again here could never fire.
      *
      * @return what disagreed, or null where nothing did
      */
     private String disagreementIn(Reading first, Reading second) {
-        String counted = miscountedGrid(first);
-        if (counted != null) {
-            return counted;
-        }
-        counted = miscountedGrid(second);
+        String counted = miscountedGrid(second);
         if (counted != null) {
             return counted;
         }

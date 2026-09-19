@@ -244,6 +244,21 @@ class TaskParamsTest {
         assertTrue(thrown.getMessage().contains("readAttempts"), thrown::getMessage);
     }
 
+    /**
+     * Compiled at binding like a shape's, not on the way past the agent loop. Left to where it is
+     * used, a broken flag pattern throws after two fetches and up to six delegated readings have
+     * been paid for — and after the hub may already have accepted the sequence.
+     */
+    @Test
+    void refusesAFlagPatternThatDoesNotCompile() {
+        String props = COMPLETE.replace("flagPattern=[{]F[}]", "flagPattern=[{]F[}");
+
+        RuntimeException thrown = assertThrows(RuntimeException.class, () -> bind(props));
+
+        assertTrue(thrown.getMessage().contains("flagPattern"),
+                () -> "it has to name the key whose regex is broken: " + thrown.getMessage());
+    }
+
     /** A pattern that does not compile throws on the first sequence, after the loop is paid for. */
     @Test
     void refusesAShapePatternThatDoesNotCompile() {
