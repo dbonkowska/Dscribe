@@ -92,7 +92,7 @@ public class S02E05 {
         settings.put("max iterations", String.valueOf(MAX_ITERATIONS));
         settings.put("max wait", MAX_WAIT.toString());
         settings.put("grid", task.grid().columns() + " x " + task.grid().rows());
-        settings.put("read attempts", String.valueOf(task.grid().readAttempts()));
+        settings.put("read attempts", task.grid().readAttempts() + " x 2 readings");
 
         try (RunTranscript transcript = RunTranscript.open(
                 labsConfig.dataDir().resolve("logs"),

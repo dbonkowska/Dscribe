@@ -12,10 +12,17 @@ import org.slf4j.LoggerFactory;
  * tell the difference.
  *
  * <p>So two things that <em>can</em> be checked are, and neither is disclosed to the model. The
- * totals catch a grid counted wrong from the start, which is the likeliest way an off-by-one
- * happens. The anchor — a landmark whose position is already known — catches a position counted
- * wrong inside a grid counted right, which the totals cannot see. A reading that misses the
- * landmark we can check has said nothing worth acting on about the one we cannot.
+ * grid's size catches a grid counted wrong from the start, which is the likeliest way an off-by-one
+ * happens. Agreement between two readings catches a position counted wrong inside a grid counted
+ * right, which the size cannot see.
+ *
+ * <p>Agreement rather than a known landmark, because this image has none: its one visually distinct
+ * feature is the target itself, boosted in colour on purpose to make it findable. There is no
+ * second position whose answer is already known, so a calibration against one cannot be built.
+ *
+ * <p>This is deliberately not proof. Two readings from one model can be wrong the same way, and
+ * nothing here sees it when they are. It catches an unsteady reading, not a consistently biased
+ * one.
  *
  * <p>Not a tool the model calls. There is one image and one moment to read it, so a tool would only
  * add decisions the model can get wrong — whether to call it, when, how often — and reading first
@@ -31,17 +38,20 @@ final class GridReader {
      * <p>Named fields rather than a pair: an ordered pair crossing this boundary is one a later
      * reader can put back together the wrong way round, and nothing downstream would know.
      *
-     * @param reasoning the model's own account of how it counted, kept for the transcript — a
-     *                  rejected reading is the one worth reading afterwards
+     * <p>Component order is schema order, and schema order is the order a strict structured answer
+     * is generated in. {@code reasoning} comes first for that reason alone: written after the
+     * numbers it could only justify them, where written before it is working the numbers come out
+     * of. Nothing reads it — it is here to be produced, and to explain a rejected reading in the
+     * transcript afterwards.
+     *
+     * @param reasoning the model's own account of how it counted, before it counts
      */
     record Reading(
+            String reasoning,
             int gridColumns,
             int gridRows,
-            int anchorColumn,
-            int anchorRow,
             int targetColumn,
-            int targetRow,
-            String reasoning) {}
+            int targetRow) {}
 
     /**
      * One delegated look at the image.
@@ -73,38 +83,59 @@ final class GridReader {
         String disagreement = null;
 
         for (int attempt = 1; attempt <= grid.readAttempts(); attempt++) {
-            Reading reading = read.read();
-            disagreement = disagreementWith(reading);
+            Reading first = read.read();
+            Reading second = read.read();
+            disagreement = disagreementIn(first, second);
 
             if (disagreement == null) {
                 log.info("reading accepted on attempt {}: target column {} row {}",
-                        attempt, reading.targetColumn(), reading.targetRow());
-                return reading;
+                        attempt, first.targetColumn(), first.targetRow());
+                return first;
             }
             log.info("reading rejected on attempt {}: {}", attempt, disagreement);
         }
 
         throw new IllegalStateException(
-                "No reading of the image agreed with what is already known about it, after "
-                        + grid.readAttempts() + " attempts. The last disagreed because " + disagreement
+                "No pair of readings agreed, after " + grid.readAttempts()
+                        + " attempts of two readings each. The last disagreed because " + disagreement
                         + ". Nothing was submitted: a coordinate nothing confirms would render a"
                         + " well-formed sequence that acts in the wrong place.");
     }
 
-    /** @return what disagreed, or null where nothing did */
-    private String disagreementWith(Reading reading) {
+    /**
+     * Both readings are checked against the grid, then against each other.
+     *
+     * @return what disagreed, or null where nothing did
+     */
+    private String disagreementIn(Reading first, Reading second) {
+        String counted = miscountedGrid(first);
+        if (counted != null) {
+            return counted;
+        }
+        counted = miscountedGrid(second);
+        if (counted != null) {
+            return counted;
+        }
+
+        // What the grid size cannot see. Both readings counted the grid right and put the target in
+        // different cells of it, so at least one of them is wrong and nothing says which.
+        // Transposing a column and a row looks exactly like this.
+        if (first.targetColumn() != second.targetColumn() || first.targetRow() != second.targetRow()) {
+            return "two readings put the target in different sectors — column " + first.targetColumn()
+                    + " row " + first.targetRow() + ", then column " + second.targetColumn() + " row "
+                    + second.targetRow();
+        }
+        return null;
+    }
+
+    private String miscountedGrid(Reading reading) {
         if (reading == null) {
-            return "nothing came back from the reading";
+            return "nothing came back from a reading";
         }
         if (reading.gridColumns() != grid.columns() || reading.gridRows() != grid.rows()) {
-            return "it counted a grid of " + reading.gridColumns() + " columns by "
+            return "a reading counted a grid of " + reading.gridColumns() + " columns by "
                     + reading.gridRows() + " rows, where the grid is " + grid.columns() + " by "
                     + grid.rows();
-        }
-        if (reading.anchorColumn() != grid.anchorColumn() || reading.anchorRow() != grid.anchorRow()) {
-            return "it placed the anchor at column " + reading.anchorColumn() + " row "
-                    + reading.anchorRow() + ", where the anchor is at column " + grid.anchorColumn()
-                    + " row " + grid.anchorRow();
         }
         return null;
     }

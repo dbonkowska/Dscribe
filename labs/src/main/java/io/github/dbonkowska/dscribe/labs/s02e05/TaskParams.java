@@ -13,9 +13,9 @@ import java.util.regex.PatternSyntaxException;
  * <p>Everything the exercise supplies lives outside the repository, and this lesson adds three
  * things no earlier one had. The command shapes say which overload a written argument selects — a
  * command language where the argument's format chooses the method cannot be described by a name
- * alone. The grid and its anchor are what a reading is checked against, and they are knowledge
- * handed to the run rather than derived by it. And the reserved template renders the one command
- * the runner owns rather than the model.
+ * alone. The grid's size is what a reading is checked against, and it is knowledge handed to the
+ * run rather than derived by it. And the reserved template renders the one command the runner owns
+ * rather than the model.
  *
  * <p>Lists bind by index: {@code dsl.shapes.1.id}, {@code dsl.shapes.1.command},
  * {@code dsl.plainCommands.1}, and so on.
@@ -46,8 +46,7 @@ public record TaskParams(
         require(flagPattern, "flagPattern");
         require(docUrl, "docUrl");
         requirePresent(image, "image", "image.file and image.mediaType");
-        requirePresent(grid, "grid", "grid.columns, grid.rows, grid.anchorColumn, grid.anchorRow"
-                + " and grid.readAttempts");
+        requirePresent(grid, "grid", "grid.columns, grid.rows and grid.readAttempts");
         requirePresent(dsl, "dsl", "dsl.shapes.1.id, dsl.terminal, dsl.reservedShape and the rest");
         requirePresent(submit, "submit", "submit.name and submit.description");
     }
@@ -67,36 +66,23 @@ public record TaskParams(
     }
 
     /**
-     * What a reading is checked against, none of it disclosed to the model.
+     * What a reading is checked against, neither of which is disclosed to the model.
      *
-     * <p>The anchor is the calibration: a landmark whose position is already known. A reading that
-     * misses the one we can check has said nothing worth acting on about the one we cannot.
+     * <p>There is no landmark here to calibrate against. The one visually distinct feature of this
+     * lesson's image is the target itself — its colour was boosted on purpose to make it findable —
+     * so a second known position does not exist to be checked. What stands in for it is agreement:
+     * each attempt reads twice, and the two must place the target in the same sector.
      *
-     * @param anchorColumn the anchor's column, counted from 1 at the left
-     * @param readAttempts how many readings may disagree before the run gives up
+     * @param readAttempts how many attempts may disagree before the run gives up; each is two
+     *                     readings
      */
-    public record Grid(int columns, int rows, int anchorColumn, int anchorRow, int readAttempts) {
+    public record Grid(int columns, int rows, int readAttempts) {
         public Grid {
             // a dimension nobody wrote binds to zero, and a grid with no columns is one no reading
             // can ever agree with: every attempt is rejected and the run dies having paid for all
             requirePositive(columns, "grid.columns");
             requirePositive(rows, "grid.rows");
-            requirePositive(anchorColumn, "grid.anchorColumn");
-            requirePositive(anchorRow, "grid.anchorRow");
 
-            // an anchor outside its own grid cannot be matched by any reading, so the check meant
-            // to calibrate the model rejects every one instead — and the transcript then reads as
-            // a model that cannot count rather than as a file that cannot be satisfied
-            if (anchorColumn > columns) {
-                throw new IllegalStateException(
-                        "grid.anchorColumn is " + anchorColumn + ", outside a grid of " + columns
-                                + " columns. No reading can match it, so every attempt would be rejected.");
-            }
-            if (anchorRow > rows) {
-                throw new IllegalStateException(
-                        "grid.anchorRow is " + anchorRow + ", outside a grid of " + rows
-                                + " rows. No reading can match it, so every attempt would be rejected.");
-            }
             if (readAttempts < 1) {
                 throw new IllegalStateException(
                         "grid.readAttempts is " + readAttempts + "; it must be at least 1. Zero reads every"

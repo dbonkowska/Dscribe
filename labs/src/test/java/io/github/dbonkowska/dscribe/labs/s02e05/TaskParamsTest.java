@@ -17,11 +17,11 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  *
  * <p>This lesson hands the file three things no earlier one did. The command shapes decide which
  * overload a written argument selects, so a wrong one is not refused but dispatched somewhere
- * else. The grid dimensions and anchor are the only thing standing between a miscounted reading
- * and a well-formed sequence that lands on the wrong place — an anchor outside its own grid can
- * never be matched, so every reading is rejected and the run dies having paid for all of them.
- * And the reserved template renders the one command the runner owns; a template that lost a slot
- * renders a command naming one number, which no shape matches.
+ * else. The grid dimensions are half of what stands between a miscounted reading and a well-formed
+ * sequence that lands in the wrong place — a grid nobody wrote binds to zero, which no reading can
+ * agree with, so every attempt is rejected and the run dies having paid for all of them. And the
+ * reserved template renders the one command the runner owns; a template that lost a slot renders a
+ * command naming one number, which no shape matches.
  *
  * <p>Values here are invented: nothing in this file is supplied by the exercise.
  */
@@ -36,8 +36,6 @@ class TaskParamsTest {
             image.mediaType=image/png
             grid.columns=9
             grid.rows=6
-            grid.anchorColumn=2
-            grid.anchorRow=3
             grid.readAttempts=3
             dsl.shapes.1.id=alt
             dsl.shapes.1.command=set
@@ -219,20 +217,6 @@ class TaskParamsTest {
         RuntimeException thrown = assertThrows(RuntimeException.class, () -> bind(props));
 
         assertTrue(thrown.getMessage().contains(key), thrown::getMessage);
-    }
-
-    /**
-     * An anchor outside its own grid cannot be matched by any reading, so the check meant to
-     * calibrate the model rejects every attempt instead — and the transcript reads as a model that
-     * cannot count.
-     */
-    @Test
-    void refusesAnAnchorOutsideTheGrid() {
-        String props = COMPLETE.replace("grid.anchorColumn=2", "grid.anchorColumn=10");
-
-        RuntimeException thrown = assertThrows(RuntimeException.class, () -> bind(props));
-
-        assertTrue(thrown.getMessage().contains("anchorColumn"), thrown::getMessage);
     }
 
     /** Zero attempts reads every reading as exhausted, so the run fails without ever looking. */
