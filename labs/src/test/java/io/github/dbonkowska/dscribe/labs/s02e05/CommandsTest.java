@@ -234,6 +234,34 @@ class CommandsTest {
                 () -> "it has to name the shape it should have matched: " + thrown.getMessage());
     }
 
+    /**
+     * A shape listed before the reserved one whose pattern also accepts a coordinate would shadow
+     * it: the entry is classified as that earlier shape and never compared with the assembled
+     * string, so the one guard written to catch a substituted value silently stops applying.
+     *
+     * <p>No separate rule catches this — the construction check above does, because the assembled
+     * command is matched the same way every entry is, and a shadowed one resolves to the wrong id.
+     * This test is here to keep that side effect from being refactored away.
+     */
+    @Test
+    void refusesAShapeListedBeforeTheReservedOneThatAlsoAcceptsItsArgument() {
+        TaskParams.Dsl shadowed = new TaskParams.Dsl(
+                List.of(
+                        new TaskParams.Shape("alt", "set", "^[0-9]+,[0-9]+$"),
+                        new TaskParams.Shape("sec", "set", "^[0-9]+,[0-9]+$")),
+                List.of("go"),
+                "go",
+                List.of("sec"),
+                "sec",
+                "set(%s,%s)");
+
+        IllegalStateException thrown = assertThrows(IllegalStateException.class,
+                () -> new Commands(shadowed, RESERVED));
+
+        assertTrue(thrown.getMessage().contains("sec"),
+                () -> "it has to name the shape that should have owned it: " + thrown.getMessage());
+    }
+
     /** Well-formed, and the wrong shape: this one is the altitude, not the coordinate. */
     @Test
     void refusesAnAssembledCommandMatchingADifferentShape() {

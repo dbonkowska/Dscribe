@@ -1,7 +1,6 @@
 package io.github.dbonkowska.dscribe.labs.s02e05;
 
 import io.github.dbonkowska.dscribe.agent.Agent;
-import io.github.dbonkowska.dscribe.agent.StopCondition;
 import io.github.dbonkowska.dscribe.conversation.ContentPart;
 import io.github.dbonkowska.dscribe.conversation.Message;
 import io.github.dbonkowska.dscribe.conversation.Role;
@@ -27,6 +26,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.IllegalFormatException;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -104,6 +104,11 @@ public class S02E05 {
         TaskParams task = lesson.task(TaskParams.class);
         Artifacts artifacts = Artifacts.of(labsConfig.dataDir(), "s02e05");
 
+        // Checked here, before a transcript is open and before anything has been fetched or read:
+        // it needs neither real value, and a template that cannot carry them is a run that cannot
+        // succeed. Same boundary-refusal discipline TaskParams applies to every key it binds.
+        String userTemplate = requireBothSlots(lesson.prompt("user.md"));
+
         Map<String, String> settings = new LinkedHashMap<>();
         settings.put("model", llm.model());
         settings.put("vision model", vision.model());
@@ -170,16 +175,28 @@ public class S02E05 {
 
             List<Message> seed = List.of(
                     new Message(Role.system, lesson.prompt("system.md")),
-                    new Message(Role.user, render(lesson.prompt("user.md"), documentation, sector)));
+                    new Message(Role.user, userTemplate.formatted(documentation, sector)));
 
             Toolbox tools = new Toolbox(List.of(
                     submit.tool(task.submit().name(), task.submit().description())));
 
             System.out.println("Model: " + llm.model() + " · vision: " + vision.model());
 
-            new Agent(recorded, tools, MAX_ITERATIONS).run(seed, StopCondition.untilNoToolCalls());
+            // Ends on the model's own turn, or as soon as a reply has carried the result. Asked of
+            // an assistant turn before its calls are dispatched, so a submission the model writes
+            // after the hub has already accepted one is never made: there is nothing left to earn,
+            // and each of those costs a real call. Leaving its tool calls unanswered is safe here —
+            // nothing seeds another run from this conversation.
+            Pattern flagPattern = Pattern.compile(task.flagPattern());
+            new Agent(recorded, tools, MAX_ITERATIONS).run(seed,
+                    turn -> !turn.hasToolCalls() || findFlag(submit.responses(), flagPattern) != null);
 
-            String flag = flagIn(submit.responses(), task.flagPattern());
+            String flag = findFlag(submit.responses(), flagPattern);
+            if (flag == null) {
+                throw new IllegalStateException(
+                        "No reply matched " + task.flagPattern() + " across " + submit.responses().size()
+                                + " submission(s). The run ended without the hub accepting a sequence.");
+            }
 
             artifacts.write("answer.json",
                     new Answer(flag, sector, accepted.targetColumn(), accepted.targetRow()));
@@ -195,34 +212,56 @@ public class S02E05 {
      * The result is taken from what the hub returned, never from what the model says about it.
      * Nothing has to be checked against a report, because there is no report: a run that never saw
      * the result in a reply simply has not earned it.
+     *
+     * @return the result as the hub wrote it, or null where no reply has carried one yet
      */
-    private static String flagIn(List<String> responses, String pattern) {
-        Pattern flag = Pattern.compile(pattern);
+    private static String findFlag(List<String> responses, Pattern flag) {
         for (String response : responses) {
             Matcher matcher = flag.matcher(response);
             if (matcher.find()) {
                 return matcher.group();
             }
         }
-        throw new IllegalStateException(
-                "No reply matched " + pattern + " across " + responses.size() + " submission(s)."
-                        + " The run ended without the hub ever accepting a sequence.");
+        return null;
     }
 
     /**
-     * Rendered and then checked by what came out, not by counting placeholders:
-     * {@code String.formatted} discards an argument it has nowhere to put. A user prompt that lost
-     * its second slot would never tell the model the one command it is not allowed to choose, and
-     * every submission would then be refused for writing a coordinate of its own.
+     * Checked by rendering it with markers, never with the real values.
+     *
+     * <p>{@code String.formatted} discards an argument it has nowhere to put, so a template that
+     * lost its second slot renders cleanly and never tells the model the one command it is not
+     * allowed to choose — after which every submission it writes is refused for a coordinate it had
+     * no way to know.
+     *
+     * <p>The markers matter more here than anywhere else in this repo. One of the slots is filled
+     * with a page of documentation <em>about this command language</em>, and that page carries a
+     * worked example of the very command being checked. Testing for the real value would let the
+     * documentation satisfy the check on the run where the reading happens to match the example —
+     * a live draw, not a theoretical one, on a grid this small. A marker cannot occur by accident
+     * in the rendered output; a plausible value can, and here it is likely to.
+     *
+     * <p>It checks the first slot too, which testing the real value never did: a template written
+     * with only the second would hand the model a coordinate and no documentation, and nothing
+     * would say so.
      */
-    private static String render(String template, String documentation, String sector) {
-        String rendered = template.formatted(documentation, sector);
-        if (!rendered.contains(sector)) {
+    private static String requireBothSlots(String template) {
+        String documentation = "<<documentation>>";
+        String sector = "<<sector>>";
+        String probe;
+        try {
+            probe = template.formatted(documentation, sector);
+        } catch (IllegalFormatException e) {
             throw new IllegalStateException(
-                    "user.md rendered without the assembled command " + sector + ". It needs two %s:"
-                            + " the documentation, then the command the run has already decided.");
+                    "user.md is not a valid format string: " + e.getMessage()
+                            + ". Write a literal percent sign as %%.", e);
         }
-        return rendered;
+        if (!probe.contains(documentation) || !probe.contains(sector)) {
+            throw new IllegalStateException(
+                    "user.md must contain two %s: the fetched documentation, then the command the run"
+                            + " has already decided. Rendering it dropped one, which no reader of the"
+                            + " prompt would see and every submission would then be refused for.");
+        }
+        return template;
     }
 
     /**

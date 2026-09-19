@@ -69,13 +69,17 @@ class GridReaderTest {
         assertEquals(4, calls, "a disagreement costs a whole attempt, not one reading");
     }
 
-    /** A grid counted wrong from the start makes every position inside it wrong too. */
+    /**
+     * A grid counted wrong from the start makes every position inside it wrong too — and it is
+     * knowably wrong before the second reading of that attempt is paid for, so the attempt ends
+     * there. Three calls, not four: one doomed reading, then a fresh pair.
+     */
     @Test
-    void readsAgainWhenAReadingDisagreesWithTheKnownGrid() {
-        GridReader.Reading accepted = reader(MISCOUNTED_GRID, AGREES, AGREES, AGREES).read();
+    void doesNotPayForASecondReadingOnceTheFirstHasFailed() {
+        GridReader.Reading accepted = reader(MISCOUNTED_GRID, AGREES, AGREES).read();
 
         assertEquals(9, accepted.gridColumns());
-        assertEquals(4, calls);
+        assertEquals(3, calls, "the second reading of a doomed attempt is never made");
     }
 
     /** The second of a pair is checked too, not only the first. */
@@ -105,17 +109,18 @@ class GridReaderTest {
                 () -> "it has to say the two readings differed on the target: " + thrown.getMessage());
     }
 
-    /** The same ending by the other route, so the two cannot be confused in a log. */
+    /**
+     * The same ending by the other route, so the two cannot be confused in a log — and the cheaper
+     * one: every attempt is doomed on its first reading, so the run spends three calls rather than
+     * six to reach the same refusal.
+     */
     @Test
     void failsNamingTheGridWhenEveryReadingMiscountsIt() {
-        GridReader reader = reader(
-                MISCOUNTED_GRID, MISCOUNTED_GRID,
-                MISCOUNTED_GRID, MISCOUNTED_GRID,
-                MISCOUNTED_GRID, MISCOUNTED_GRID);
+        GridReader reader = reader(MISCOUNTED_GRID, MISCOUNTED_GRID, MISCOUNTED_GRID);
 
         IllegalStateException thrown = assertThrows(IllegalStateException.class, reader::read);
 
-        assertEquals(6, calls);
+        assertEquals(3, calls, "a first reading that fails ends its attempt");
         assertTrue(thrown.getMessage().contains("8") && thrown.getMessage().contains("9"),
                 () -> "it has to say what was counted and what was expected: " + thrown.getMessage());
     }

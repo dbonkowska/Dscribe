@@ -170,6 +170,17 @@ public record TaskParams(
                         "dsl.plainCommands must list at least one command, and one of them is"
                                 + " dsl.terminal. Set dsl.plainCommands.1, ...");
             }
+            // A name in both lists makes its bare form permanently unreachable: an entry is only
+            // read as taking no argument when the name has no shapes at all, so the plain listing
+            // would never be consulted and a refusal would offer the name twice.
+            for (Shape shape : shapes) {
+                if (plainCommands.contains(shape.command())) {
+                    throw new IllegalStateException(
+                            "dsl.plainCommands lists " + shape.command() + ", which is also the command"
+                                    + " of shape " + shape.id() + ". A command either takes an argument"
+                                    + " or does not; listed both ways its bare form can never be reached.");
+                }
+            }
             require(terminal, "dsl.terminal");
             if (!plainCommands.contains(terminal)) {
                 throw new IllegalStateException(

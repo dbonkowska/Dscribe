@@ -84,6 +84,15 @@ final class GridReader {
 
         for (int attempt = 1; attempt <= grid.readAttempts(); attempt++) {
             Reading first = read.read();
+
+            // a first reading that already disagrees with the known grid is doomed whatever the
+            // second says, and this is a loop that spends per turn: the attempt ends here
+            disagreement = miscountedGrid(first);
+            if (disagreement != null) {
+                log.info("reading rejected on attempt {}: {}", attempt, disagreement);
+                continue;
+            }
+
             Reading second = read.read();
             disagreement = disagreementIn(first, second);
 

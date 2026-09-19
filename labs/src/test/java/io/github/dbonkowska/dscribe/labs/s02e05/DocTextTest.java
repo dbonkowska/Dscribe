@@ -78,6 +78,19 @@ class DocTextTest {
                 () -> "the page's order is the documentation's order: " + stripped);
     }
 
+    /**
+     * A tag becomes a space rather than nothing. A table row written on one line would otherwise
+     * run its cells together into a word the page never contained, and the model would read that
+     * word as the API's own vocabulary.
+     */
+    @Test
+    void keepsCellsOfAOneLineRowApart() {
+        String stripped = DocText.strip(PAGE);
+
+        assertTrue(stripped.contains("Method Notes"),
+                () -> "cells of one row must not be joined into MethodNotes: " + stripped);
+    }
+
     /** Stripping a block element per line leaves the gaps behind; they are paid for as tokens. */
     @Test
     void collapsesRunsOfBlankLines() {

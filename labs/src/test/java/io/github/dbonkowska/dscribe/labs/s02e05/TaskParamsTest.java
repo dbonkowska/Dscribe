@@ -219,6 +219,21 @@ class TaskParamsTest {
         assertTrue(thrown.getMessage().contains(key), thrown::getMessage);
     }
 
+    /**
+     * A name in both lists makes its bare form permanently unreachable: an entry is only treated as
+     * taking no argument when the name has no shapes at all, so the plain listing would never be
+     * consulted and the refusal would offer the name twice.
+     */
+    @Test
+    void refusesACommandListedBothAsPlainAndAsAShape() {
+        String props = COMPLETE + "dsl.plainCommands.3=set\n";
+
+        RuntimeException thrown = assertThrows(RuntimeException.class, () -> bind(props));
+
+        assertTrue(thrown.getMessage().contains("set"),
+                () -> "it has to name the command listed twice: " + thrown.getMessage());
+    }
+
     /** Zero attempts reads every reading as exhausted, so the run fails without ever looking. */
     @Test
     void refusesReadAttemptsBelowOne() {
