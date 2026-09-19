@@ -121,6 +121,34 @@ class SubmitToolTest {
     }
 
     /**
+     * The result is in what the hub said, not in what the model reports about it. The runner reads
+     * it from these rather than asking the model to repeat it, so a plausible-looking answer that
+     * no reply ever contained cannot end the run.
+     */
+    @Test
+    void keepsEveryReplyTheHubReturned() {
+        SubmitTool submit = submitTool();
+        Tool<SubmitTool.Submission> tool = submit.tool("send", "sends a sequence");
+
+        tool.handler().apply(new SubmitTool.Submission(VALID));
+        tool.handler().apply(new SubmitTool.Submission(VALID));
+
+        assertEquals(List.of("{\"n\":1}", "{\"n\":2}"), submit.responses());
+    }
+
+    /** A refused sequence never reached the hub, so it left no reply to keep. */
+    @Test
+    void keepsNoReplyForASequenceItRefused() {
+        SubmitTool submit = submitTool();
+        Tool<SubmitTool.Submission> tool = submit.tool("send", "sends a sequence");
+
+        assertThrows(IllegalArgumentException.class,
+                () -> tool.handler().apply(new SubmitTool.Submission(List.of("set(5u)", "set(3,4)"))));
+
+        assertEquals(List.of(), submit.responses());
+    }
+
+    /**
      * A provider that ignores the schema can leave the list out. Refused as something the model can
      * supply, rather than reaching it as "Tool failed: NullPointerException".
      */

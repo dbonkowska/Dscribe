@@ -5,6 +5,7 @@ import io.github.dbonkowska.dscribe.tool.ToolOutput;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -38,6 +39,15 @@ final class SubmitTool {
     private final Send send;
     private final Commands commands;
 
+    /**
+     * Every reply the hub returned, in order.
+     *
+     * <p>The result is in what the hub said, not in what the model reports about it — so the runner
+     * reads it from here rather than asking the model to repeat it back. A plausible answer that no
+     * reply ever contained cannot end the run.
+     */
+    private final List<String> responses = new ArrayList<>();
+
     private int attempts;
 
     SubmitTool(Send send, Commands commands) {
@@ -66,6 +76,12 @@ final class SubmitTool {
         String label = "submission " + (++attempts);
         log.info("{}: {}", label, instructions);
 
-        return send.send(label, Map.of("instructions", List.copyOf(instructions)));
+        String reply = send.send(label, Map.of("instructions", List.copyOf(instructions)));
+        responses.add(reply);
+        return reply;
+    }
+
+    List<String> responses() {
+        return List.copyOf(responses);
     }
 }
