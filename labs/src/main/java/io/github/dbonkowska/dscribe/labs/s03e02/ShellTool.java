@@ -6,9 +6,11 @@ import io.github.dbonkowska.dscribe.schema.SchemaUtils;
 import io.github.dbonkowska.dscribe.tool.Tool;
 import io.github.dbonkowska.dscribe.tool.ToolOutput;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * Hands the model a shell it cannot see into: it writes a command, this sends it, and what comes
@@ -100,8 +102,49 @@ final class ShellTool {
         });
 
         sent++;
-        String body = hub.post("command " + sent, spec.path(), Map.of(spec.commandKey(), command));
-        replies.add(body);
+        String label = "command " + sent;
+        String body = post(label, command);
+
+        // The number of tries is counted from what was made, never derived from the policy, so the
+        // note the model reads is a fact about this command rather than a setting.
+        int attempts = 1;
+        int retries = 0;
+        Duration waited = Duration.ZERO;
+        Optional<String> code = matching(spec.transientCodes(), body);
+        while (code.isPresent()) {
+            Optional<Duration> backoff = policy.backoffAfter(attempts);
+            if (backoff.isEmpty()) {
+                break;
+            }
+            sleeper.await(backoff.get());
+            waited = waited.plus(backoff.get());
+            attempts++;
+            retries++;
+            body = post(label + " · retry " + retries, command);
+            code = matching(spec.transientCodes(), body);
+        }
+
+        // A reply that recovered reads as an ordinary one. Only one still refused is annotated, and
+        // only in what the model is shown: replies() keeps the body as the hub sent it.
+        if (code.isPresent()) {
+            return ToolOutput.of("[transient refusal " + code.get() + " · waited " + show(waited) + " over "
+                    + retries + " retries]\n" + body);
+        }
         return ToolOutput.of(body);
+    }
+
+    private String post(String label, String command) {
+        String body = hub.post(label, spec.path(), Map.of(spec.commandKey(), command));
+        replies.add(body);
+        return body;
+    }
+
+    /** The first configured code the reply contains — the hub returns no status, only text. */
+    private static Optional<String> matching(List<String> codes, String body) {
+        return codes.stream().filter(body::contains).findFirst();
+    }
+
+    private static String show(Duration duration) {
+        return duration.toMillis() % 1000 == 0 ? duration.toSeconds() + "s" : duration.toMillis() + "ms";
     }
 }

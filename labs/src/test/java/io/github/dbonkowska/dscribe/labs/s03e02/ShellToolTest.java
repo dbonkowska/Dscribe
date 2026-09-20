@@ -41,14 +41,18 @@ class ShellToolTest {
     private ShellTool shell = shell(List.of());
 
     private ShellTool shell(List<String> forbidden) {
+        return shell(forbidden, List.of(), RetryPolicy.defaults());
+    }
+
+    private ShellTool shell(List<String> forbidden, List<String> transientCodes, RetryPolicy policy) {
         Iterator<String> replies = queue.iterator();
         return new ShellTool(
                 (label, path, body) -> {
                     posted.add(new Posted(label, path, MAPPER.valueToTree(body)));
                     return replies.hasNext() ? replies.next() : "{\"out\":\"a\"}";
                 },
-                new ShellTool.Spec(PATH, KEY, forbidden, List.of(), List.of()),
-                RetryPolicy.defaults(),
+                new ShellTool.Spec(PATH, KEY, forbidden, transientCodes, List.of()),
+                policy,
                 slept::add);
     }
 
@@ -117,5 +121,61 @@ class ShellToolTest {
         tool().handler().apply(new ShellTool.Command("cat ozone/a"));
 
         assertEquals(1, posted.size());
+    }
+
+    /** Four attempts, one second doubling, five seconds at most: waits of 1s, 2s and 4s. */
+    private static final RetryPolicy POLICY =
+            new RetryPolicy(4, Duration.ofSeconds(1), 2.0, Duration.ofSeconds(5));
+
+    private static final String BUSY = "{\"code\":\"BUSY\"}";
+
+    private Tool<ShellTool.Command> transientTool() {
+        shell = shell(List.of(), List.of("BUSY"), POLICY);
+        return tool();
+    }
+
+    /** The retries worked, so the model has nothing to be told: it reads the answer it asked for. */
+    @Test
+    void waitsOutATransientRefusalAndHandsBackTheReplyThatFollowed() {
+        queue.addAll(List.of(BUSY, BUSY, "{\"out\":\"ok\"}"));
+
+        Object result = transientTool().handler().apply(new ShellTool.Command("ls")).result();
+
+        assertEquals(3, posted.size());
+        assertEquals(List.of(Duration.ofSeconds(1), Duration.ofSeconds(2)), slept);
+        assertEquals("{\"out\":\"ok\"}", result, "a recovered command reads as an ordinary one");
+    }
+
+    /**
+     * When the retries run out the model is told what happened and how long it cost, so it does not
+     * mistake the refusal for an answer about its command. The kept reply stays raw.
+     */
+    @Test
+    void namesAPersistentTransientRefusalAndWhatWaitingCost() {
+        queue.addAll(List.of(BUSY, BUSY, BUSY, BUSY));
+
+        String result = (String) transientTool().handler().apply(new ShellTool.Command("ls")).result();
+
+        assertEquals(4, posted.size());
+        assertEquals(List.of(Duration.ofSeconds(1), Duration.ofSeconds(2), Duration.ofSeconds(4)), slept);
+        String firstLine = result.lines().findFirst().orElseThrow();
+        assertTrue(firstLine.contains("transient"), firstLine);
+        assertTrue(firstLine.contains("BUSY"), firstLine);
+        assertTrue(firstLine.contains("7s"), firstLine);
+        assertTrue(firstLine.contains("3 retries"), firstLine);
+        assertTrue(result.endsWith(BUSY), "the last raw reply stays beneath the note: " + result);
+        assertEquals(List.of(BUSY, BUSY, BUSY, BUSY), shell.replies(), "the kept replies carry no note");
+    }
+
+    /** Only a configured code is waited on. Anything else is an answer, and answers are not retried. */
+    @Test
+    void doesNotRetryAnOrdinaryFailure() {
+        queue.add("{\"error\":\"no such file\"}");
+
+        Object result = transientTool().handler().apply(new ShellTool.Command("cat x")).result();
+
+        assertEquals(1, posted.size());
+        assertTrue(slept.isEmpty());
+        assertEquals("{\"error\":\"no such file\"}", result);
     }
 }
