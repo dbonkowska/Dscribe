@@ -45,13 +45,18 @@ class ShellToolTest {
     }
 
     private ShellTool shell(List<String> forbidden, List<String> transientCodes, RetryPolicy policy) {
+        return shell(forbidden, transientCodes, List.of(), policy);
+    }
+
+    private ShellTool shell(
+            List<String> forbidden, List<String> transientCodes, List<String> causedCodes, RetryPolicy policy) {
         Iterator<String> replies = queue.iterator();
         return new ShellTool(
                 (label, path, body) -> {
                     posted.add(new Posted(label, path, MAPPER.valueToTree(body)));
                     return replies.hasNext() ? replies.next() : "{\"out\":\"a\"}";
                 },
-                new ShellTool.Spec(PATH, KEY, forbidden, transientCodes, List.of()),
+                new ShellTool.Spec(PATH, KEY, forbidden, transientCodes, causedCodes),
                 policy,
                 slept::add);
     }
@@ -177,5 +182,57 @@ class ShellToolTest {
         assertEquals(1, posted.size());
         assertTrue(slept.isEmpty());
         assertEquals("{\"error\":\"no such file\"}", result);
+    }
+
+    private static final String LOCKED = "{\"code\":\"LOCKED\"}";
+
+    private Tool<ShellTool.Command> causedTool() {
+        shell = shell(List.of(), List.of(), List.of("LOCKED"), POLICY);
+        return tool();
+    }
+
+    /**
+     * Sending the same command again would meet the same refusal, so this waits once, does not
+     * resend, and tells the model the refusal was about the command before, not the one it just wrote.
+     */
+    @Test
+    void waitsOutACausedRefusalWithoutRetryingAndNamesTheCommandThatCausedIt() {
+        queue.addAll(List.of("{\"out\":\"ok\"}", LOCKED));
+        Tool<ShellTool.Command> tool = causedTool();
+        tool.handler().apply(new ShellTool.Command("cmd-a"));
+
+        String result = (String) tool.handler().apply(new ShellTool.Command("cmd-b")).result();
+
+        assertEquals(2, posted.size(), "a caused refusal is not retried");
+        assertEquals(List.of(Duration.ofSeconds(1)), slept);
+        String firstLine = result.lines().findFirst().orElseThrow();
+        assertTrue(firstLine.contains("caused"), firstLine);
+        assertTrue(firstLine.contains("LOCKED"), firstLine);
+        assertTrue(firstLine.contains("not retried"), firstLine);
+        assertTrue(firstLine.contains("cmd-a"), "it has to name the earlier command: " + firstLine);
+        assertTrue(result.endsWith(LOCKED), "the raw reply stays beneath the note: " + result);
+        assertEquals(List.of("{\"out\":\"ok\"}", LOCKED), shell.replies(), "the kept replies carry no note");
+    }
+
+    @Test
+    void saysSoWhenACausedRefusalFollowsNoEarlierCommand() {
+        queue.add(LOCKED);
+
+        String result = (String) causedTool().handler().apply(new ShellTool.Command("cmd-a")).result();
+
+        assertEquals(1, posted.size());
+        String firstLine = result.lines().findFirst().orElseThrow();
+        assertTrue(firstLine.contains("not retried"), firstLine);
+        assertTrue(firstLine.contains("no earlier command"), firstLine);
+    }
+
+    @Test
+    void passesAnUnconfiguredCodeThroughVerbatim() {
+        queue.add("{\"code\":\"OTHER\"}");
+
+        Object result = causedTool().handler().apply(new ShellTool.Command("cmd-a")).result();
+
+        assertEquals("{\"code\":\"OTHER\"}", result);
+        assertTrue(slept.isEmpty());
     }
 }

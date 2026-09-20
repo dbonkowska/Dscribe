@@ -65,6 +65,7 @@ final class ShellTool {
 
     private final List<String> replies = new ArrayList<>();
     private int sent;
+    private String previous;
 
     ShellTool(Post hub, Spec spec, RetryPolicy policy, Sleeper sleeper) {
         this.hub = hub;
@@ -104,6 +105,23 @@ final class ShellTool {
         sent++;
         String label = "command " + sent;
         String body = post(label, command);
+
+        // The refusal to a command is often about the one before it, so remember which that was. Updated
+        // for every command that was sent, and never for one the guard turned away.
+        String before = previous;
+        previous = command;
+
+        Optional<String> caused = matching(spec.causedCodes(), body);
+        if (caused.isPresent()) {
+            // Resending would meet the same refusal, so wait once and hand it back.
+            Duration wait = policy.backoffAfter(1).orElse(Duration.ZERO);
+            if (!wait.isZero()) {
+                sleeper.await(wait);
+            }
+            String cause = before == null ? "no earlier command was sent" : "caused by: " + before;
+            return ToolOutput.of("[caused refusal " + caused.get() + " · waited " + show(wait)
+                    + " · not retried · " + cause + "]\n" + body);
+        }
 
         // The number of tries is counted from what was made, never derived from the policy, so the
         // note the model reads is a fact about this command rather than a setting.
