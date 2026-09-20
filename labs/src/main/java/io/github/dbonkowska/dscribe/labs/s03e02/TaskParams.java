@@ -20,6 +20,7 @@ import java.util.regex.PatternSyntaxException;
  * @param answerKey      the key the code is sent under in the submission's answer object. Missing, it
  *                       would bind to null and every submission would reach the hub malformed
  * @param shell          where and how a command is posted
+ * @param ignore         how to recognise, in a reply, a file listing paths that are off limits
  * @param forbidden      roots a command must not address
  * @param transientCodes reply fragments meaning "try again shortly"
  * @param causedCodes    reply fragments meaning "your previous command caused this"
@@ -32,6 +33,7 @@ public record TaskParams(
         String codePattern,
         String answerKey,
         Shell shell,
+        Ignore ignore,
         List<String> forbidden,
         List<String> transientCodes,
         List<String> causedCodes,
@@ -51,6 +53,11 @@ public record TaskParams(
         if (shell == null) {
             throw new IllegalStateException(
                     "shell is missing: set shell.path, shell.commandKey and shell.helpCommand in the"
+                            + " lesson's task.properties.");
+        }
+        if (ignore == null) {
+            throw new IllegalStateException(
+                    "ignore is missing: set ignore.file, ignore.pathKey and ignore.contentKey in the"
                             + " lesson's task.properties.");
         }
         requirePrompt(command, "command");
@@ -134,6 +141,23 @@ public record TaskParams(
             require(path, "shell.path");
             require(commandKey, "shell.commandKey");
             require(helpCommand, "shell.helpCommand");
+        }
+    }
+
+    /**
+     * How the run learns forbidden paths it could not know at start-up: a file, found while working,
+     * that lists what must not be touched. All three are the exercise's words.
+     *
+     * @param file       the name of such a file, matched against the last segment of a reply's path
+     * @param pathKey    the reply field holding the path of the file that was read
+     * @param contentKey the reply field holding that file's content
+     */
+    public record Ignore(String file, String pathKey, String contentKey) {
+
+        public Ignore {
+            require(file, "ignore.file");
+            require(pathKey, "ignore.pathKey");
+            require(contentKey, "ignore.contentKey");
         }
     }
 

@@ -29,6 +29,8 @@ class ShellToolTest {
     private static final String PATH = "/x/shell";
     private static final String KEY = "cmd";
     private static final int THRESHOLD = 3;
+    private static final int MAX_REPLY = 200;
+    private static final Guard.Learning LEARNING = new Guard.Learning(".ign", "path", "data");
 
     /** One post the fake received. */
     private record Posted(String label, String path, JsonNode body) {}
@@ -57,7 +59,7 @@ class ShellToolTest {
                     posted.add(new Posted(label, path, MAPPER.valueToTree(body)));
                     return replies.hasNext() ? replies.next() : "{\"out\":\"a\"}";
                 },
-                new ShellTool.Spec(PATH, KEY, forbidden, transientCodes, causedCodes, THRESHOLD),
+                new ShellTool.Spec(PATH, KEY, forbidden, transientCodes, causedCodes, THRESHOLD, MAX_REPLY, LEARNING),
                 policy,
                 slept::add);
     }
@@ -331,5 +333,83 @@ class ShellToolTest {
 
         assertTrue(thrown.getMessage().contains("3 times"), thrown::getMessage);
         assertEquals(5, posted.size());
+    }
+
+    private static String listing(String path, String entry) {
+        return MAPPER.writeValueAsString(java.util.Map.of("code", 150, "path", path, "data", entry));
+    }
+
+    /**
+     * The model may write the command that reads a listing and the command that touches what it
+     * lists in one turn, before it could have seen the listing. They run in the order written, so by
+     * the time the second is checked the first has been answered.
+     */
+    @Test
+    void refusesWhatAListingItReadNamesEvenWhenBothCommandsWereWrittenTogether() {
+        queue.add(listing("/d/.ign", "x.txt"));
+        shell = shell(List.of());
+        Tool<ShellTool.Command> tool = tool();
+        tool.handler().apply(new ShellTool.Command("cat /d/.ign"));
+
+        IllegalArgumentException thrown = assertThrows(IllegalArgumentException.class,
+                () -> tool.handler().apply(new ShellTool.Command("cat /d/x.txt")));
+
+        assertTrue(thrown.getMessage().contains("/d/x.txt"), thrown::getMessage);
+        assertTrue(thrown.getMessage().contains("Nothing was sent"), thrown::getMessage);
+        assertEquals(1, posted.size(), "the refused command must not reach the hub");
+    }
+
+    @Test
+    void stillSendsWhatTheListingDoesNotName() {
+        queue.add(listing("/d/.ign", "x.txt"));
+        shell = shell(List.of());
+        Tool<ShellTool.Command> tool = tool();
+
+        send(tool, "cat /d/.ign", "cat /d/y.txt");
+
+        assertEquals(2, posted.size());
+    }
+
+    /**
+     * A file can come back as megabytes. Handed to the model whole it would overflow the context and
+     * end the run, so what the model reads is capped — but the start and the end are kept, since a
+     * program's output tends to end with what it produced. What was cut is said, with its size.
+     */
+    @Test
+    void keepsTheStartAndEndOfAReplyTooLongToHandOver() {
+        String huge = "head-" + "x".repeat(5000) + "-tail";
+        queue.add(huge);
+        shell = shell(List.of());
+
+        String result = (String) tool().handler().apply(new ShellTool.Command("cat big")).result();
+
+        assertTrue(result.startsWith("head-"), result);
+        assertTrue(result.endsWith("-tail"), result);
+        assertTrue(result.length() < 2 * MAX_REPLY, "what the model reads has to stay small: " + result.length());
+        assertTrue(result.contains("5010"), "it has to say how long the reply really was: " + result);
+        assertEquals(List.of(huge), shell.replies(), "the kept reply is whole");
+    }
+
+    @Test
+    void handsOverAReplyExactlyAtTheCapUntouched() {
+        String exact = "y".repeat(MAX_REPLY);
+        queue.add(exact);
+        shell = shell(List.of());
+
+        Object result = tool().handler().apply(new ShellTool.Command("cat exact")).result();
+
+        assertEquals(exact, result);
+    }
+
+    /** The note that says a refusal was waited on must survive the cut: it is the part that is about the model. */
+    @Test
+    void keepsARefusalNoteWhenTheReplyBeneathItIsCut() {
+        String big = BUSY + "z".repeat(5000);
+        queue.addAll(List.of(big, big, big, big));
+
+        String result = (String) transientTool().handler().apply(new ShellTool.Command("ls")).result();
+
+        assertTrue(result.lines().findFirst().orElseThrow().contains("transient refusal BUSY"), result);
+        assertTrue(result.length() < 2 * MAX_REPLY + 200, "" + result.length());
     }
 }

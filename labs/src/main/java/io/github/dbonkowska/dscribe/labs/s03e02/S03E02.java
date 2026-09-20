@@ -28,12 +28,14 @@ import java.util.regex.Pattern;
  * cannot represent them — is unavailable, so each failure is re-homed one at a time:
  *
  * <ul>
- *   <li>a command that addresses a forbidden root is refused in the tool, before a request is spent;
+ *   <li>a command that addresses a forbidden path is refused in the tool, before a request is spent;
  *   <li>a refusal the environment answers with is classified, and waited out or not retried;
  *   <li>the result code is read from the recorded replies by the runner, and the submit tool takes
  *       no argument at all;
  *   <li>a run that repeats itself is ended by a count of what it did, not by the iteration cap;
- *   <li>the one rule that is written in files found during the run has nowhere to go but the prompt.
+ *   <li>paths that a file found during the run lists as off limits are learned from its reply, so
+ *       the guard grows as the run reads, and the prompt is a second line of defence rather than
+ *       the only one.
  * </ul>
  *
  * <p>Nothing resets the environment, neither at start-up nor in a {@code finally}. A reset here is a
@@ -68,6 +70,14 @@ public class S03E02 {
      */
     private static final int REPEAT_THRESHOLD = 3;
 
+    /**
+     * The most of one shell reply the model is handed. Reading a binary returned it as megabytes of
+     * escaped bytes, which no context holds, and every later request would have carried it again. The
+     * start and end are kept, and the whole reply stays in the transcript and in what the submit tool
+     * reads its code from.
+     */
+    private static final int MAX_REPLY_CHARS = 6000;
+
     public static void main(String[] args) {
         LabsConfig labsConfig = LabsConfig.load();
         LlmClient llm = new LlmClient(labsConfig.llm()).defaultModel(MODEL);
@@ -87,6 +97,7 @@ public class S03E02 {
         settings.put("max iterations", String.valueOf(MAX_ITERATIONS));
         settings.put("max wait", MAX_WAIT.toString());
         settings.put("repeat threshold", String.valueOf(REPEAT_THRESHOLD));
+        settings.put("max reply chars", String.valueOf(MAX_REPLY_CHARS));
         settings.put("shell path", shell.path());
         settings.put("forbidden roots", String.join(", ", task.forbidden()));
         settings.put("environment reset", "none: state is inherited from the previous run, check that run first");
@@ -127,7 +138,10 @@ public class S03E02 {
                             task.forbidden(),
                             task.transientCodes(),
                             task.causedCodes(),
-                            REPEAT_THRESHOLD),
+                            REPEAT_THRESHOLD,
+                            MAX_REPLY_CHARS,
+                            new Guard.Learning(
+                                    task.ignore().file(), task.ignore().pathKey(), task.ignore().contentKey())),
                     RetryPolicy.defaults(),
                     Sleeper.real());
 

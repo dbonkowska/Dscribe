@@ -32,6 +32,9 @@ class TaskParamsTest {
             shell.path=/x/shell
             shell.commandKey=cmd
             shell.helpCommand=help
+            ignore.file=.ign
+            ignore.pathKey=path
+            ignore.contentKey=data
             forbidden.1=a
             forbidden.2=b
             transientCodes.1=BUSY
@@ -51,12 +54,13 @@ class TaskParamsTest {
         assertEquals(List.of("LOCKED"), params.causedCodes());
         assertEquals("cmd", params.shell().commandKey());
         assertEquals("code", params.answerKey());
+        assertEquals("path", params.ignore().pathKey());
         assertEquals("send", params.submit().name());
     }
 
     @ParameterizedTest
     @ValueSource(strings = {
-            "verifyTask", "flagPattern", "codePattern", "answerKey", "shell.path", "shell.commandKey",
+            "verifyTask", "flagPattern", "codePattern", "answerKey", "ignore.file", "ignore.pathKey", "ignore.contentKey", "shell.path", "shell.commandKey",
             "shell.helpCommand", "command.name", "command.description", "submit.name",
             "submit.description"})
     void refusesARequiredKeyThatWasNeverWritten(String key) {
@@ -76,7 +80,7 @@ class TaskParamsTest {
     /** Present but empty is the same mistake as absent, and has to be refused the same way. */
     @ParameterizedTest
     @ValueSource(strings = {
-            "verifyTask", "flagPattern", "codePattern", "answerKey", "shell.path", "shell.commandKey",
+            "verifyTask", "flagPattern", "codePattern", "answerKey", "ignore.file", "ignore.pathKey", "ignore.contentKey", "shell.path", "shell.commandKey",
             "shell.helpCommand", "command.name", "command.description", "submit.name",
             "submit.description"})
     void refusesARequiredKeyLeftBlank(String key) {

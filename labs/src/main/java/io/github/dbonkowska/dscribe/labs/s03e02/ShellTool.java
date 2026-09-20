@@ -40,6 +40,9 @@ final class ShellTool {
      * @param forbidden      roots a command must not address
      * @param transientCodes reply fragments meaning "try again shortly"
      * @param causedCodes    reply fragments meaning "your previous command caused this"
+     * @param maxReplyChars the most of one reply the model is handed. A file can come back as megabytes, which
+     *                      would overflow its context; the start and end are kept. Mechanism, not task content
+     * @param ignore         how to recognise a reply that lists paths to avoid, so the guard can learn them
      * @param repeatThreshold how many times in a row the same command is sent before a repeat is refused.
      *                        Mechanism rather than task content, so the runner supplies a constant
      */
@@ -49,7 +52,9 @@ final class ShellTool {
             List<String> forbidden,
             List<String> transientCodes,
             List<String> causedCodes,
-            int repeatThreshold) {}
+            int repeatThreshold,
+            int maxReplyChars,
+            Guard.Learning ignore) {}
 
     /**
      * One POST to the hub, returning the body as it came — {@code HubClient::post}, and a recording
@@ -76,7 +81,7 @@ final class ShellTool {
     ShellTool(Post hub, Spec spec, RetryPolicy policy, Sleeper sleeper) {
         this.hub = hub;
         this.spec = spec;
-        this.guard = new Guard(spec.forbidden());
+        this.guard = new Guard(spec.forbidden(), spec.ignore());
         this.policy = policy;
         this.sleeper = sleeper;
     }
@@ -149,7 +154,7 @@ final class ShellTool {
             }
             String cause = before == null ? "no earlier command was sent" : "caused by: " + before;
             return ToolOutput.of("[caused refusal " + caused.get() + " · waited " + show(wait)
-                    + " · not retried · " + cause + "]\n" + body);
+                    + " · not retried · " + cause + "]\n" + shown(body));
         }
 
         // The number of tries is counted from what was made, never derived from the policy, so the
@@ -175,14 +180,36 @@ final class ShellTool {
         // only in what the model is shown: replies() keeps the body as the hub sent it.
         if (code.isPresent()) {
             return ToolOutput.of("[transient refusal " + code.get() + " · waited " + show(waited) + " over "
-                    + retries + " retries]\n" + body);
+                    + retries + " retries]\n" + shown(body));
         }
-        return ToolOutput.of(body);
+        return ToolOutput.of(shown(body));
+    }
+
+    /**
+     * What the model reads of a reply. A reply within the cap is handed over as it is. A longer one
+     * keeps its start and its end, with a line between saying what was cut and how long the whole
+     * was: the end is kept because a program's output tends to finish with what it produced. Only
+     * this view is cut — {@code replies()} and the transcript keep the whole reply.
+     */
+    private String shown(String body) {
+        int max = spec.maxReplyChars();
+        if (body.length() <= max) {
+            return body;
+        }
+        int half = max / 2;
+        int omitted = body.length() - 2 * half;
+        return body.substring(0, half)
+                + "\n[... " + omitted + " of " + body.length() + " characters omitted: only the start and"
+                + " the end of this reply are shown. The whole reply was recorded. ...]\n"
+                + body.substring(body.length() - half);
     }
 
     private String post(String label, String command) {
         String body = hub.post(label, spec.path(), Map.of(spec.commandKey(), command));
         replies.add(body);
+        // Every reply, not only a successful one: what a file lists is what the run now knows to avoid,
+        // and the command that touches it may already be written, waiting behind this one.
+        guard.learn(body);
         return body;
     }
 
