@@ -1,0 +1,97 @@
+package io.github.dbonkowska.dscribe.labs.s03e02;
+
+import java.util.List;
+
+/**
+ * Bound from {@code {labs.lessons.dir}/s03e02/task.properties}.
+ *
+ * <p>Everything the exercise supplies lives outside the repository. The code knows only that there
+ * is a shell endpoint taking a command under some key, a set of roots the model must not touch, and
+ * two families of refusal the environment answers with — one worth retrying, one caused by the
+ * model's own previous command. The words that name them are the exercise's.
+ *
+ * <p>Lists bind by index: {@code forbidden.1}, {@code transientCodes.1}, and so on.
+ *
+ * @param verifyTask     the task name the hub expects
+ * @param flagPattern    a regex matching the hub's reply when it accepts a submission
+ * @param codePattern    a regex matching the code the environment prints when the work is done
+ * @param shell          where and how a command is posted
+ * @param forbidden      roots a command must not address
+ * @param transientCodes reply fragments meaning "try again shortly"
+ * @param causedCodes    reply fragments meaning "your previous command caused this"
+ * @param command        the tool that runs one command
+ * @param submit         the tool that sends the code the replies produced
+ */
+public record TaskParams(
+        String verifyTask,
+        String flagPattern,
+        String codePattern,
+        Shell shell,
+        List<String> forbidden,
+        List<String> transientCodes,
+        List<String> causedCodes,
+        ToolPrompt command,
+        ToolPrompt submit) {
+
+    /** Each check refuses at the binding boundary, before the transcript is even open. */
+    public TaskParams {
+        // Each binds to null when missing and fails later: the task name at the hub as a malformed
+        // submission, the patterns after the result was already earned.
+        require(verifyTask, "verifyTask");
+        require(flagPattern, "flagPattern");
+        require(codePattern, "codePattern");
+        if (shell == null) {
+            throw new IllegalStateException(
+                    "shell is missing: set shell.path, shell.commandKey and shell.helpCommand in the"
+                            + " lesson's task.properties.");
+        }
+        requirePrompt(command, "command");
+        requirePrompt(submit, "submit");
+        forbidden = forbidden == null ? List.of() : List.copyOf(forbidden);
+        transientCodes = transientCodes == null ? List.of() : List.copyOf(transientCodes);
+        causedCodes = causedCodes == null ? List.of() : List.copyOf(causedCodes);
+    }
+
+    /**
+     * Checked here rather than in {@code ToolPrompt}, which cannot know whether it is the command or
+     * the submit, and so could not name the key to edit.
+     */
+    private static void requirePrompt(ToolPrompt prompt, String key) {
+        if (prompt == null) {
+            throw new IllegalStateException(
+                    key + " is missing: set " + key + ".name and " + key + ".description in the lesson's"
+                            + " task.properties.");
+        }
+        require(prompt.name(), key + ".name");
+        require(prompt.description(), key + ".description");
+    }
+
+    private static void require(String value, String key) {
+        if (value == null || value.isBlank()) {
+            throw new IllegalStateException(
+                    key + " is missing or blank. A string key nobody wrote binds to null rather"
+                            + " than failing, and this one would fail later and further from"
+                            + " here. Set it in the lesson's task.properties.");
+        }
+    }
+
+    /**
+     * The endpoint commands are posted to.
+     *
+     * @param path        where the shell is posted to, under the hub's base URL
+     * @param commandKey  the body key a command travels under
+     * @param helpCommand the command whose reply describes the environment, seeded into the
+     *                    conversation
+     */
+    public record Shell(String path, String commandKey, String helpCommand) {
+
+        public Shell {
+            require(path, "shell.path");
+            require(commandKey, "shell.commandKey");
+            require(helpCommand, "shell.helpCommand");
+        }
+    }
+
+    /** The prompt-facing half of a tool — the only half the exercise supplies. */
+    public record ToolPrompt(String name, String description) {}
+}
