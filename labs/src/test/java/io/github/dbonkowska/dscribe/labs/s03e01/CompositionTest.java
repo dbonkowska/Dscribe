@@ -7,6 +7,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -135,6 +136,29 @@ class CompositionTest {
                         List.of(CLEAR_1), noteStances(CLEAR_1, "clear"), incomplete));
 
         assertTrue(thrown.getMessage().contains("nothing of note"), thrown::getMessage);
+    }
+
+    @Test
+    void readsACoarseVerdictStraightOffTheMap() {
+        Composition composition = composition(0.9);
+        Map<String, String> stances = noteStances(CLEAR_1, "clear", TAIL_PROBLEM, PROBLEM);
+
+        assertTrue(composition.judgedAsProblem(TAIL_PROBLEM, stances));
+        assertFalse(composition.judgedAsProblem(CLEAR_1, stances));
+    }
+
+    /**
+     * The lapse this closes. {@code problem.equals(map.get(whole))} answers false for a missing
+     * entry, so an unjudged note would be submitted as clean — silence read as a verdict, in the
+     * only direction the single-shot oracle cannot report on. Every other lookup in the pipeline
+     * already refuses a null; this one defaulted.
+     */
+    @Test
+    void refusesACoarseVerdictThatIsMissingRatherThanReadingItAsClean() {
+        IllegalStateException thrown = assertThrows(IllegalStateException.class,
+                () -> composition(0.9).judgedAsProblem(CLEAR_1, Map.of()));
+
+        assertTrue(thrown.getMessage().contains(CLEAR_1), thrown::getMessage);
     }
 
     /** A sampled whole nothing judged: there is no coarse verdict to compare against. */

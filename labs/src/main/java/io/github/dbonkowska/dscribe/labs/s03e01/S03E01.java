@@ -113,8 +113,9 @@ public class S03E01 {
             // --- the deterministic pass -------------------------------------------------------
             Rules rules = new Rules(task.channels(), task.fields().typeSeparator());
             Set<String> flagged = new TreeSet<>();
-            Map<Rules.Kind, Integer> byKind = new LinkedHashMap<>();
+            Map<Rules.Kind, Integer> violationsByKind = new LinkedHashMap<>();
             List<Reading> clean = new ArrayList<>();
+            int byRule = 0;
 
             for (Reading reading : readings) {
                 List<Rules.Violation> violations = rules.violations(reading);
@@ -123,10 +124,15 @@ public class S03E01 {
                     continue;
                 }
                 flagged.add(reading.id());
-                violations.forEach(v -> byKind.merge(v.kind(), 1, Integer::sum));
+                byRule++;
+                // counted separately from the records above, and never summed with them: one
+                // record can break two rules, and the two numbers coincide only by accident of
+                // this corpus. A count believed rather than taken is the thing that expires.
+                violations.forEach(v -> violationsByKind.merge(v.kind(), 1, Integer::sum));
             }
 
-            System.out.println("Flagged by rule: " + flagged.size() + " · " + byKind);
+            System.out.println("Flagged by rule: " + byRule + " records · violations "
+                    + violationsByKind);
             System.out.println("Clean, note to read: " + clean.size());
 
             // --- deduplication ----------------------------------------------------------------
@@ -154,6 +160,9 @@ public class S03E01 {
             System.out.println("Evaluation: " + passed.checked() + " labels, all agreeing");
 
             // --- is the cheap unit allowed to stand in? ---------------------------------------
+            // the first N in file order rather than a random N: reproducibility was preferred to
+            // representativeness, so a re-run batches identically and a disagreement can be
+            // chased. Worth revisiting if the corpus ever groups its notes by anything.
             List<String> sample = notes.subList(0, Math.min(task.judge().sampleSize(), notes.size()));
             Map<String, String> noteStances = new LinkedHashMap<>(judge.stances(sample));
 
@@ -174,8 +183,8 @@ public class S03E01 {
             int byNote = 0;
             for (Reading reading : clean) {
                 boolean claims = agreement.unit() == Composition.Unit.CLAUSE
-                        ? composition.claimsProblem(reading.notes(), partStances)
-                        : task.stance().problem().equals(noteStances.get(reading.notes()));
+                        ? composition.composedClaimsProblem(reading.notes(), partStances)
+                        : composition.judgedAsProblem(reading.notes(), noteStances);
                 if (claims) {
                     flagged.add(reading.id());
                     byNote++;
@@ -201,9 +210,10 @@ public class S03E01 {
                     new Answer(flag, flagged.size(), agreement.unit().name()));
 
             System.out.println(flag);
-            transcript.outcome("Submitted " + flagged.size() + " ids (" + byKind + " by rule, "
-                    + byNote + " by note), judged by " + agreement.unit() + " at agreement "
-                    + agreement.rate() + ", and earned `" + flag + "`.");
+            transcript.outcome("Submitted " + flagged.size() + " ids — " + byRule + " by rule, "
+                    + byNote + " by note (violations by kind: " + violationsByKind + "), judged by "
+                    + agreement.unit() + " at agreement " + agreement.rate()
+                    + ", and earned `" + flag + "`.");
             System.out.println("Transcript: " + transcript.file());
         }
     }

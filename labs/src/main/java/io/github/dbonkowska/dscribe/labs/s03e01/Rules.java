@@ -92,6 +92,16 @@ final class Rules {
         return active;
     }
 
+    /**
+     * A configured field's value, or a refusal.
+     *
+     * <p>Strict about inactive channels too, deliberately. This corpus writes every field on every
+     * record and zeroes the ones a record is not reporting, so an absent field here means the
+     * configuration names something the data does not have. An archive that instead omitted the
+     * channels it was not reporting would be diagnosed as a misconfiguration by this message, and
+     * would want a different rule — absent-means-zero — decided in the open rather than by
+     * loosening this one.
+     */
     private static double value(Reading reading, TaskParams.Channel channel) {
         Double value = reading.values().get(channel.field());
         if (value == null) {

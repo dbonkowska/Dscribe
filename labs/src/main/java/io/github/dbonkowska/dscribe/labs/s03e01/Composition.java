@@ -1,7 +1,6 @@
 package io.github.dbonkowska.dscribe.labs.s03e01;
 
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.regex.Pattern;
@@ -85,7 +84,7 @@ final class Composition {
                                 + " verdict to compare a composed one against.");
             }
 
-            if (claimsProblem(whole, partStances) == problem.equals(stance)) {
+            if (composedClaimsProblem(whole, partStances) == problem.equals(stance)) {
                 matched++;
             } else {
                 disagreed.add(whole);
@@ -103,7 +102,7 @@ final class Composition {
      * as silence, a whole whose only problem sits in the missing part composes to clear, and the
      * rate then measures a gap in the inputs while reporting it as a fact about the language.
      */
-    boolean claimsProblem(String whole, Map<String, String> partStances) {
+    boolean composedClaimsProblem(String whole, Map<String, String> partStances) {
         boolean claims = false;
         for (String part : parts(whole)) {
             String stance = partStances.get(part);
@@ -117,5 +116,24 @@ final class Composition {
             }
         }
         return claims;
+    }
+
+    /**
+     * The same question read straight off a coarse verdict, for the branch where the finer unit
+     * was not trusted.
+     *
+     * <p>Refuses an unjudged whole for the reason its composed sibling refuses an unjudged part.
+     * A plain {@code problem.equals(map.get(whole))} answers {@code false} for a missing entry, so
+     * a note nothing judged would be submitted as clean — silence read as a verdict, and in the
+     * one direction this run has no way to check.
+     */
+    boolean judgedAsProblem(String whole, Map<String, String> wholeStances) {
+        String stance = wholeStances.get(whole);
+        if (stance == null) {
+            throw new IllegalStateException(
+                    "Nothing judged '" + whole + "'. Treated as silence it would submit every"
+                            + " record carrying it as clean.");
+        }
+        return problem.equals(stance);
     }
 }
