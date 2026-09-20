@@ -77,6 +77,23 @@ public class LlmClient implements ChatTransport {
         return model != null && !model.isBlank();
     }
 
+    /**
+     * Which model a call's spend is recorded against: the one that answered, falling back to the
+     * one that was asked.
+     *
+     * <p>The response wins because a provider may route elsewhere than it was asked, and a run
+     * that used more than one model cannot be read afterwards unless each exchange is attributed
+     * to whatever actually produced it. {@code RunTranscript.served} already applies this rule to
+     * its headings; this applies it to the bill.
+     *
+     * <p>The fallback exists because a response that names nothing would otherwise accumulate a
+     * whole run's spend under a blank key, which identifies nothing in a report. Absent and empty
+     * both arrive here, and {@link #named} treats them alike.
+     */
+    static String attributed(String served, String requested) {
+        return named(served) ? served : requested;
+    }
+
     private ChatResponse exchange(ChatRequest requestBody) {
         if (!named(model)) {
             // nothing here invents a model: a request that names none is answered by the provider
