@@ -79,6 +79,11 @@ public class S03E01 {
         String judgePrompt = lesson.prompt("system.md");
         List<Label> labels = lesson.jsonList("eval.json", Label.class);
 
+        // refused here rather than at the gate: both conditions are about this file alone, and a
+        // labels file that cannot do its job should not cost a corpus fetch and a judging pass
+        // before saying so
+        Evaluation.requireUsable(labels, task.stance().problem());
+
         Composition composition = new Composition(
                 task.fields().clauseSeparator(),
                 task.stance().problem(),
@@ -330,10 +335,14 @@ public class S03E01 {
         }
 
         if (readings.isEmpty()) {
-            throw new IllegalStateException(
-                    "No file in " + dir + " matched archive.idPattern (" + task.archive().idPattern()
-                            + "); one of them is named '" + anyName + "'. An empty corpus submits an"
-                            + " empty set, which the hub cannot distinguish from a wrong one.");
+            throw new IllegalStateException(anyName == null
+                    ? "There are no files in " + dir + " at all — the archive unpacked to nothing."
+                            + " An empty corpus submits an empty set, which the hub cannot"
+                            + " distinguish from a wrong one."
+                    : "No file in " + dir + " matched archive.idPattern ("
+                            + task.archive().idPattern() + "); one of them is named '" + anyName
+                            + "'. An empty corpus submits an empty set, which the hub cannot"
+                            + " distinguish from a wrong one.");
         }
         return readings;
     }

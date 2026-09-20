@@ -36,6 +36,37 @@ final class Evaluation {
     private Evaluation() {}
 
     /**
+     * Refuses a labels file that cannot do its job, at startup, before anything is fetched or
+     * spent.
+     *
+     * <p>Both conditions are statements about {@code eval.json} alone — no corpus, no model, no
+     * measurement — so waiting until a gate runs makes the run pay for something knowable before
+     * the first byte is fetched.
+     *
+     * <p>The second condition is stronger than it looks. A set with nothing marked as a problem
+     * cannot catch the likeliest way for this model to be wrong: answering the benign stance to
+     * everything. Such a set passes the phrase-level gate unconditionally while appearing to have
+     * checked thirty things, and leaves {@link #checkDerived} nothing to check at all.
+     */
+    static void requireUsable(List<Label> labels, String problem) {
+        if (labels.isEmpty()) {
+            throw new IllegalStateException(
+                    "No labels to check against. A gate that compares nothing passes everything and"
+                            + " reports that it passed. Write the sample in the lesson bundle's"
+                            + " eval.json before running.");
+        }
+
+        boolean marksAProblem = labels.stream().anyMatch(label -> problem.equals(label.stance()));
+        if (!marksAProblem) {
+            throw new IllegalStateException(
+                    "No label in eval.json is marked '" + problem + "'. A set that only says what"
+                            + " is fine cannot catch a model answering that way to everything,"
+                            + " which is the likeliest thing to go wrong here, and leaves the"
+                            + " note-level gate nothing to derive from.");
+        }
+    }
+
+    /**
      * Throws unless the model agreed with every label.
      *
      * <p>Every disagreement is collected before throwing rather than the first one reported. One
@@ -112,14 +143,7 @@ final class Evaluation {
             }
         }
 
-        if (problemParts.isEmpty()) {
-            throw new IllegalStateException(
-                    "No label marks a problem, so nothing can be derived about whole-level"
-                            + " verdicts: the only direction that survives the change of unit is"
-                            + " \"a whole carrying a problem part claims a problem\". Label at"
-                            + " least one phrase as '" + composition.problem() + "' in eval.json.");
-        }
-
+        // that at least one label marks a problem is settled at startup by requireUsable
         List<String> disagreements = new ArrayList<>();
         int checked = 0;
 
@@ -148,6 +172,16 @@ final class Evaluation {
                     "Whole-level judgement contradicted " + disagreements.size()
                             + " label(s), so nothing was submitted:\n  "
                             + String.join("\n  ", disagreements));
+        }
+
+        // nothing compared is not the same as nothing wrong, and {@link #check} refuses exactly
+        // this vacuity for itself. Unreachable while every labelled part came from some whole,
+        // but that is an argument about the caller rather than anything visible here.
+        if (checked == 0) {
+            throw new IllegalStateException(
+                    "Nothing to derive: no judged whole carries any of the " + problemParts.size()
+                            + " phrase(s) labelled '" + composition.problem() + "'. The check"
+                            + " compared nothing, which is not the same as finding nothing wrong.");
         }
 
         return new Passed(checked);

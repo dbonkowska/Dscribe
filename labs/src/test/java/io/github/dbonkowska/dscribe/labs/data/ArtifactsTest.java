@@ -168,15 +168,19 @@ class ArtifactsTest {
         Artifacts artifacts = Artifacts.of(root, "x01");
         zip(artifacts.file("bundle.zip"), entries("a.json", "{\"n\":1}", "sub/b.json", "{\"n\":2}"));
 
-        // what a killed run leaves: some of the entries, under the staging name
+        // What a killed run leaves. The stale entry is one the archive does NOT carry: seeded with
+        // a name the archive also has, extraction would overwrite it and every assertion below
+        // would hold whether or not staging was cleared — a test unable to fail for its own reason.
         Files.createDirectories(artifacts.file("bundle.unpacking"));
         Files.writeString(
-                artifacts.file("bundle.unpacking/a.json"), "half-written", StandardCharsets.UTF_8);
+                artifacts.file("bundle.unpacking/stale.json"), "from a dead run", StandardCharsets.UTF_8);
 
         artifacts.unzip("bundle.zip", "bundle");
 
         assertEquals("{\"n\":1}", text(artifacts.file("bundle/a.json")));
         assertEquals("{\"n\":2}", text(artifacts.file("bundle/sub/b.json")));
+        assertFalse(Files.exists(artifacts.file("bundle/stale.json")),
+                "a stale entry from an interrupted run must not survive into the target");
         assertFalse(Files.exists(artifacts.file("bundle.unpacking")), "staging is not left behind");
     }
 
@@ -188,6 +192,21 @@ class ArtifactsTest {
         artifacts.unzip("bundle.zip", "bundle");
 
         assertFalse(Files.exists(artifacts.file("bundle.unpacking")), "staging is not left behind");
+    }
+
+    /**
+     * An archive with no entries. Nothing here has to succeed usefully — the caller finds an empty
+     * corpus and says so — but the failure must not be about a directory the caller never named.
+     */
+    @Test
+    void unpacksAnEmptyArchiveWithoutNamingAnInternalPath(@TempDir Path root) throws IOException {
+        Artifacts artifacts = Artifacts.of(root, "x01");
+        zip(artifacts.file("bundle.zip"), entries());
+
+        artifacts.unzip("bundle.zip", "bundle");
+
+        assertTrue(Files.isDirectory(artifacts.file("bundle")));
+        assertFalse(Files.exists(artifacts.file("bundle.unpacking")));
     }
 
     /** An empty directory is not a finished unpack, and must not block the move into place. */

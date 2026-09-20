@@ -150,16 +150,50 @@ class EvaluationTest {
         assertEquals(1, passed.checked());
     }
 
-    /** Labels with nothing to say about problems cannot check this direction at all. */
+    /**
+     * No judged whole carries a labelled problem part, so the check compared nothing and would
+     * report success. Unreachable through the runner today, but {@link Evaluation#check} refuses
+     * exactly this vacuity for itself, and an asymmetry like that survives a refactor.
+     */
     @Test
-    void refusesWhenNoLabelMarksAProblem() {
+    void refusesWhenNoWholeCarriesALabelledProblemPart() {
         IllegalStateException thrown = assertThrows(IllegalStateException.class, () ->
                 Evaluation.checkDerived(
-                        labels("all steady", CLEAR),
+                        labels("figures look wrong", PROBLEM),
                         judged("all steady, signed off", CLEAR),
                         composition()));
 
-        assertTrue(thrown.getMessage().toLowerCase().contains("problem"), thrown::getMessage);
+        assertTrue(thrown.getMessage().toLowerCase().contains("nothing"), thrown::getMessage);
+    }
+
+    /**
+     * Checked at startup, against the labels file alone.
+     *
+     * <p>It needs no corpus, no model and no measurement, so making the run earn it is the
+     * Constitution's rule from issue #20: a check needing no real values has no reason to wait for
+     * them. Left where it was, a bundle labelling only clear phrases paid for the entire
+     * note-level pass before being refused for something knowable before the fetch.
+     *
+     * <p>Stronger than it first looks, too. A label set with nothing marked as a problem cannot
+     * catch the most likely way for this model to be wrong — answering "clear" to everything —
+     * so it weakens the phrase-level gate as much as the derived one.
+     */
+    @Test
+    void refusesALabelSetWithNothingMarkedAsAProblem() {
+        IllegalStateException thrown = assertThrows(IllegalStateException.class,
+                () -> Evaluation.requireUsable(labels("all steady", CLEAR), PROBLEM));
+
+        assertTrue(thrown.getMessage().contains(PROBLEM), thrown::getMessage);
+    }
+
+    @Test
+    void refusesAnEmptyLabelSetAtStartupToo() {
+        assertThrows(IllegalStateException.class, () -> Evaluation.requireUsable(List.of(), PROBLEM));
+    }
+
+    @Test
+    void acceptsALabelSetCarryingBothStances() {
+        Evaluation.requireUsable(labels("all steady", CLEAR, "figures look wrong", PROBLEM), PROBLEM);
     }
 
     /** A gate that checks nothing passes everything, and says "passed" while doing it. */

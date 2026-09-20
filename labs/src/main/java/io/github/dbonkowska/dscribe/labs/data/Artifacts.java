@@ -116,6 +116,11 @@ public record Artifacts(Path dir) {
                 }
             }
 
+            // created up front rather than by the first entry's parent: an archive with no entries
+            // would otherwise never create it, and the move below would fail naming an internal
+            // path instead of saying anything about the archive
+            Files.createDirectories(staging);
+
             for (ZipEntry entry : entries) {
                 Path destination = root.resolve(entry.getName()).normalize();
                 if (entry.isDirectory()) {
