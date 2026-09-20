@@ -130,6 +130,30 @@ class ArtifactsTest {
         assertFalse(Files.exists(artifacts.file("bundle/ok.json")), "nor may the entries before it");
     }
 
+    /**
+     * The other escape shape, and the one any check on the name itself misses. This entry
+     * traverses nowhere — it discards the target. Resolving {@code /escape.txt} against
+     * {@code C:\...\x01\bundle} yields {@code C:\escape.txt}, and notably {@code isAbsolute()} is
+     * <em>false</em> for it on Windows, so a guard written around that flag would wave it
+     * through. Comparing the resolved path against the target is what catches all three shapes:
+     * a walk-up, a rooted name, and a fully qualified one.
+     *
+     * <p>Nothing is asserted about the world outside the temporary directory, deliberately: a
+     * guard that let this through would be writing to the drive root, and a test should not need
+     * that to have happened in order to pass.
+     */
+    @Test
+    void refusesAnEntryNamedAsARootedPath(@TempDir Path root) throws IOException {
+        Artifacts artifacts = Artifacts.of(root, "x01");
+        zip(artifacts.file("bundle.zip"), entries("ok.json", "fine", "/escape.txt", "owned"));
+
+        RuntimeException thrown =
+                assertThrows(RuntimeException.class, () -> artifacts.unzip("bundle.zip", "bundle"));
+
+        assertTrue(thrown.getMessage().contains("/escape.txt"), thrown::getMessage);
+        assertFalse(Files.exists(artifacts.file("bundle/ok.json")), "the whole archive is refused");
+    }
+
     private static String text(Path file) throws IOException {
         return Files.readString(file, StandardCharsets.UTF_8);
     }
