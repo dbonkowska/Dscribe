@@ -1,6 +1,8 @@
 package io.github.dbonkowska.dscribe.labs.s03e02;
 
 import java.util.List;
+import java.util.regex.Pattern;
+import java.util.regex.PatternSyntaxException;
 
 /**
  * Bound from {@code {labs.lessons.dir}/s03e02/task.properties}.
@@ -40,6 +42,8 @@ public record TaskParams(
         require(verifyTask, "verifyTask");
         require(flagPattern, "flagPattern");
         require(codePattern, "codePattern");
+        compiles(flagPattern, "flagPattern");
+        compiles(codePattern, "codePattern");
         if (shell == null) {
             throw new IllegalStateException(
                     "shell is missing: set shell.path, shell.commandKey and shell.helpCommand in the"
@@ -87,6 +91,20 @@ public record TaskParams(
         }
         require(prompt.name(), key + ".name");
         require(prompt.description(), key + ".description");
+    }
+
+    /**
+     * Compiled here rather than where it is applied, so a typo fails before anything is spent: a
+     * pattern that throws on the first reply would discard a code the environment had already printed.
+     */
+    private static void compiles(String pattern, String key) {
+        try {
+            Pattern.compile(pattern);
+        } catch (PatternSyntaxException e) {
+            throw new IllegalStateException(
+                    key + " is not a valid regex: " + e.getDescription() + ". Remember every backslash is"
+                            + " doubled in a properties file.", e);
+        }
     }
 
     private static void require(String value, String key) {

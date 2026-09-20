@@ -126,4 +126,32 @@ class TaskParamsTest {
         assertTrue(thrown.getMessage().contains("transientCodes"), thrown::getMessage);
         assertTrue(thrown.getMessage().contains("causedCodes"), thrown::getMessage);
     }
+
+    /**
+     * A pattern that does not compile throws on the first reply it is applied to, after the run has
+     * already spent and the environment has printed the code it was meant to find.
+     */
+    @ParameterizedTest
+    @ValueSource(strings = {"codePattern", "flagPattern"})
+    void refusesAPatternThatDoesNotCompile(String key) {
+        String props = COMPLETE.lines()
+                .map(line -> line.startsWith(key + "=") ? key + "=[a-z" : line)
+                .collect(Collectors.joining("\n"));
+
+        RuntimeException thrown = assertThrows(RuntimeException.class,
+                () -> new JavaPropsMapper().readValue(props, TaskParams.class));
+
+        assertTrue(thrown.getMessage().contains(key), thrown::getMessage);
+        assertTrue(thrown.getMessage().contains("backslash"),
+                () -> "it has to say how properties files mangle patterns: " + thrown.getMessage());
+    }
+
+    @Test
+    void bindsAPatternThatCompiles() {
+        String props = COMPLETE.replace("codePattern=[a-f0-9]{8}", "codePattern=[a-z]{40}");
+
+        TaskParams params = new JavaPropsMapper().readValue(props, TaskParams.class);
+
+        assertEquals("[a-z]{40}", params.codePattern());
+    }
 }
