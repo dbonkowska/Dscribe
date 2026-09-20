@@ -17,6 +17,8 @@ import java.util.regex.PatternSyntaxException;
  * @param verifyTask     the task name the hub expects
  * @param flagPattern    a regex matching the hub's reply when it accepts a submission
  * @param codePattern    a regex matching the code the environment prints when the work is done
+ * @param answerKey      the key the code is sent under in the submission's answer object. Missing, it
+ *                       would bind to null and every submission would reach the hub malformed
  * @param shell          where and how a command is posted
  * @param forbidden      roots a command must not address
  * @param transientCodes reply fragments meaning "try again shortly"
@@ -28,6 +30,7 @@ public record TaskParams(
         String verifyTask,
         String flagPattern,
         String codePattern,
+        String answerKey,
         Shell shell,
         List<String> forbidden,
         List<String> transientCodes,
@@ -42,6 +45,7 @@ public record TaskParams(
         require(verifyTask, "verifyTask");
         require(flagPattern, "flagPattern");
         require(codePattern, "codePattern");
+        require(answerKey, "answerKey");
         compiles(flagPattern, "flagPattern");
         compiles(codePattern, "codePattern");
         if (shell == null) {

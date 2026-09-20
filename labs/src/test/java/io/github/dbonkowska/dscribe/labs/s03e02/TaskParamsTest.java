@@ -28,6 +28,7 @@ class TaskParamsTest {
             verifyTask=x-task
             flagPattern=[{]F[}]
             codePattern=[a-f0-9]{8}
+            answerKey=code
             shell.path=/x/shell
             shell.commandKey=cmd
             shell.helpCommand=help
@@ -49,12 +50,13 @@ class TaskParamsTest {
         assertEquals(List.of("BUSY"), params.transientCodes());
         assertEquals(List.of("LOCKED"), params.causedCodes());
         assertEquals("cmd", params.shell().commandKey());
+        assertEquals("code", params.answerKey());
         assertEquals("send", params.submit().name());
     }
 
     @ParameterizedTest
     @ValueSource(strings = {
-            "verifyTask", "flagPattern", "codePattern", "shell.path", "shell.commandKey",
+            "verifyTask", "flagPattern", "codePattern", "answerKey", "shell.path", "shell.commandKey",
             "shell.helpCommand", "command.name", "command.description", "submit.name",
             "submit.description"})
     void refusesARequiredKeyThatWasNeverWritten(String key) {
@@ -74,7 +76,7 @@ class TaskParamsTest {
     /** Present but empty is the same mistake as absent, and has to be refused the same way. */
     @ParameterizedTest
     @ValueSource(strings = {
-            "verifyTask", "flagPattern", "codePattern", "shell.path", "shell.commandKey",
+            "verifyTask", "flagPattern", "codePattern", "answerKey", "shell.path", "shell.commandKey",
             "shell.helpCommand", "command.name", "command.description", "submit.name",
             "submit.description"})
     void refusesARequiredKeyLeftBlank(String key) {
