@@ -50,10 +50,10 @@ final class Composition {
     /**
      * Splits a whole into its parts.
      *
-     * <p>Stripped of surrounding space and of a single trailing stop, so the same phrase is one
-     * part wherever it sits. Without that, a phrase ending a note and the same phrase in the
-     * middle of another are two distinct parts to be judged separately — which is a needless call
-     * and, worse, two verdicts that could disagree.
+     * <p>Stripped of surrounding space and of a single trailing stop, so that the same phrase is
+     * one part wherever it sits. Were the same words to end one whole and sit inside another, the
+     * punctuation alone would make them two parts to judge separately — a needless call, and two
+     * verdicts free to disagree with each other.
      */
     List<String> parts(String whole) {
         List<String> parts = new ArrayList<>();
@@ -103,7 +103,7 @@ final class Composition {
      * as silence, a whole whose only problem sits in the missing part composes to clear, and the
      * rate then measures a gap in the inputs while reporting it as a fact about the language.
      */
-    private boolean claimsProblem(String whole, Map<String, String> partStances) {
+    boolean claimsProblem(String whole, Map<String, String> partStances) {
         boolean claims = false;
         for (String part : parts(whole)) {
             String stance = partStances.get(part);
