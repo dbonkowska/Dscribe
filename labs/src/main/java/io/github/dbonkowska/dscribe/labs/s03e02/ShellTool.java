@@ -40,13 +40,16 @@ final class ShellTool {
      * @param forbidden      roots a command must not address
      * @param transientCodes reply fragments meaning "try again shortly"
      * @param causedCodes    reply fragments meaning "your previous command caused this"
+     * @param repeatThreshold how many times in a row the same command is sent before a repeat is refused.
+     *                        Mechanism rather than task content, so the runner supplies a constant
      */
     record Spec(
             String path,
             String commandKey,
             List<String> forbidden,
             List<String> transientCodes,
-            List<String> causedCodes) {}
+            List<String> causedCodes,
+            int repeatThreshold) {}
 
     /**
      * One POST to the hub, returning the body as it came — {@code HubClient::post}, and a recording
@@ -66,6 +69,9 @@ final class ShellTool {
     private final List<String> replies = new ArrayList<>();
     private int sent;
     private String previous;
+    private String lastNormalised;
+    private int consecutive;
+    private String lastReply;
 
     ShellTool(Post hub, Spec spec, RetryPolicy policy, Sleeper sleeper) {
         this.hub = hub;
@@ -102,6 +108,29 @@ final class ShellTool {
                             + " command that does not touch it.");
         });
 
+        // After the guard, before the send: a refused command is not a repeat, and a refused repeat is not
+        // a send, so the count is what was really sent and not how often the model asked.
+        String normalised = Commands.normalise(command);
+        boolean repeat = normalised.equals(lastNormalised);
+        if (repeat && consecutive >= spec.repeatThreshold()) {
+            throw new IllegalArgumentException(
+                    "This command has already been sent " + consecutive + " times in a row with nothing"
+                            + " changing in the replies. Nothing was sent. Try a different approach.");
+        }
+        ToolOutput output = send(command);
+
+        // A repeat only counts while the environment keeps answering the same way. A different reply
+        // is progress, as when one command climbs a directory at a time, and restarts the run. The raw
+        // reply is compared, not what the model was shown, so a note cannot make two replies differ.
+        String reply = replies.getLast();
+        consecutive = repeat && reply.equals(lastReply) ? consecutive + 1 : 1;
+        lastNormalised = normalised;
+        lastReply = reply;
+        return output;
+    }
+
+    /** Sends one command, and waits out or annotates a refusal the environment answers with. */
+    private ToolOutput send(String command) {
         sent++;
         String label = "command " + sent;
         String body = post(label, command);

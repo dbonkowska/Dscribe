@@ -28,6 +28,7 @@ class ShellToolTest {
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private static final String PATH = "/x/shell";
     private static final String KEY = "cmd";
+    private static final int THRESHOLD = 3;
 
     /** One post the fake received. */
     private record Posted(String label, String path, JsonNode body) {}
@@ -56,7 +57,7 @@ class ShellToolTest {
                     posted.add(new Posted(label, path, MAPPER.valueToTree(body)));
                     return replies.hasNext() ? replies.next() : "{\"out\":\"a\"}";
                 },
-                new ShellTool.Spec(PATH, KEY, forbidden, transientCodes, causedCodes),
+                new ShellTool.Spec(PATH, KEY, forbidden, transientCodes, causedCodes, THRESHOLD),
                 policy,
                 slept::add);
     }
@@ -234,5 +235,101 @@ class ShellToolTest {
 
         assertEquals("{\"code\":\"OTHER\"}", result);
         assertTrue(slept.isEmpty());
+    }
+
+    private void send(Tool<ShellTool.Command> tool, String... commands) {
+        for (String command : commands) {
+            tool.handler().apply(new ShellTool.Command(command));
+        }
+    }
+
+    /**
+     * The count in the message is what was really sent. A model told "you repeated this 5 times" after
+     * three sends learns the wrong thing about how much it has already spent.
+     */
+    @Test
+    void refusesTheSameCommandOnceItHasBeenSentThresholdTimesInARow() {
+        Tool<ShellTool.Command> tool = tool();
+        send(tool, "ls a", "ls a", "ls a");
+
+        IllegalArgumentException thrown = assertThrows(IllegalArgumentException.class,
+                () -> tool.handler().apply(new ShellTool.Command("ls a")));
+
+        assertTrue(thrown.getMessage().contains("3 times"), thrown::getMessage);
+        assertTrue(thrown.getMessage().contains("Nothing was sent"), thrown::getMessage);
+        assertEquals(3, posted.size(), "the refused repeat must not reach the hub");
+    }
+
+    /** Spelling is not a different attempt: two whitespace variants of one command are one command. */
+    @Test
+    void countsWhitespaceVariantsOfACommandAsTheSameCommand() {
+        Tool<ShellTool.Command> tool = tool();
+        send(tool, "ls  a", "ls a", " ls a");
+
+        assertThrows(IllegalArgumentException.class,
+                () -> tool.handler().apply(new ShellTool.Command("ls   a")));
+
+        assertEquals(3, posted.size());
+    }
+
+    /** Progress is a different command: what is counted is a run of one, not a total. */
+    @Test
+    void anotherCommandInBetweenResetsTheCount() {
+        send(tool(), "a", "a", "b", "a", "a", "a");
+
+        assertEquals(6, posted.size());
+    }
+
+    /**
+     * A command the guard turned away was never sent, so it neither counts as a repeat nor breaks a
+     * run of them, and a refused repeat does not push the count past what was really sent.
+     */
+    @Test
+    void countsOnlyWhatWasActuallySent() {
+        shell = shell(List.of("zone"));
+        Tool<ShellTool.Command> tool = tool();
+        send(tool, "ls a", "ls a");
+        assertThrows(IllegalArgumentException.class,
+                () -> tool.handler().apply(new ShellTool.Command("ls zone")));
+        send(tool, "ls a");
+
+        for (int i = 0; i < 2; i++) {
+            IllegalArgumentException thrown = assertThrows(IllegalArgumentException.class,
+                    () -> tool.handler().apply(new ShellTool.Command("ls a")));
+            assertTrue(thrown.getMessage().contains("3 times"), thrown::getMessage);
+        }
+
+        assertEquals(3, posted.size());
+    }
+
+    /**
+     * The same command is progress when the environment answers differently: climbing directories
+     * with one command, or polling something that changes. Only a command that gets the same answer
+     * back is going nowhere.
+     */
+    @Test
+    void doesNotCountARepeatWhoseReplyChanged() {
+        queue.addAll(List.of("r1", "r2", "r3", "r4", "r5", "r6"));
+        shell = shell(List.of());
+        Tool<ShellTool.Command> tool = tool();
+
+        send(tool, "up", "up", "up", "up", "up", "up");
+
+        assertEquals(6, posted.size());
+    }
+
+    /** A changed reply restarts the run rather than excusing it: three identical answers still end it. */
+    @Test
+    void restartsTheCountWhenTheReplyChangesThenRefusesAtTheThreshold() {
+        queue.addAll(List.of("r1", "r1", "r2", "r2", "r2"));
+        shell = shell(List.of());
+        Tool<ShellTool.Command> tool = tool();
+        send(tool, "up", "up", "up", "up", "up");
+
+        IllegalArgumentException thrown = assertThrows(IllegalArgumentException.class,
+                () -> tool.handler().apply(new ShellTool.Command("up")));
+
+        assertTrue(thrown.getMessage().contains("3 times"), thrown::getMessage);
+        assertEquals(5, posted.size());
     }
 }
