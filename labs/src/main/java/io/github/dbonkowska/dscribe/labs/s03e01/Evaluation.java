@@ -1,8 +1,10 @@
 package io.github.dbonkowska.dscribe.labs.s03e01;
 
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * The gate in front of the one submission: the model's judgement against a sample labelled by
@@ -79,5 +81,75 @@ final class Evaluation {
         }
 
         return new Passed(labels.size());
+    }
+
+    /**
+     * The gate again, one level up, for the branch where whole-level verdicts are what gets
+     * submitted.
+     *
+     * <p>{@link #check} compares the labels against the verdicts on the parts. When the
+     * composition measurement refuses the finer unit, the run judges wholes instead and submits
+     * those — verdicts no label has been compared against. The labelled evidence does not
+     * transfer, and the branch it fails to cover is the expensive one, taken precisely because
+     * something already disagreed.
+     *
+     * <p>What survives the change of unit is <strong>one direction</strong> of the composition
+     * rule: a whole containing a part labelled as claiming a problem must itself claim one. The
+     * converse does not hold — a whole containing a part labelled clear may still claim a problem,
+     * because another of its parts can, which is the composition rule rather than a contradiction
+     * of it. A symmetric check would refuse correct runs, so only the sound direction is made.
+     *
+     * <p>Weaker than {@link #check}, and deliberately so rather than by oversight. It says nothing
+     * about wholes carrying no labelled problem part, which is most of them.
+     */
+    static Passed checkDerived(
+            List<Label> labels, Map<String, String> wholeStances, Composition composition) {
+
+        Set<String> problemParts = new LinkedHashSet<>();
+        for (Label label : labels) {
+            if (composition.problem().equals(label.stance())) {
+                problemParts.add(label.text());
+            }
+        }
+
+        if (problemParts.isEmpty()) {
+            throw new IllegalStateException(
+                    "No label marks a problem, so nothing can be derived about whole-level"
+                            + " verdicts: the only direction that survives the change of unit is"
+                            + " \"a whole carrying a problem part claims a problem\". Label at"
+                            + " least one phrase as '" + composition.problem() + "' in eval.json.");
+        }
+
+        List<String> disagreements = new ArrayList<>();
+        int checked = 0;
+
+        for (Map.Entry<String, String> judged : wholeStances.entrySet()) {
+            String carried = null;
+            for (String part : composition.parts(judged.getKey())) {
+                if (problemParts.contains(part)) {
+                    carried = part;
+                    break;
+                }
+            }
+            if (carried == null) {
+                continue;
+            }
+
+            checked++;
+            if (!composition.problem().equals(judged.getValue())) {
+                disagreements.add("'" + judged.getKey() + "' — judged " + judged.getValue()
+                        + ", but it carries '" + carried + "', labelled "
+                        + composition.problem());
+            }
+        }
+
+        if (!disagreements.isEmpty()) {
+            throw new IllegalStateException(
+                    "Whole-level judgement contradicted " + disagreements.size()
+                            + " label(s), so nothing was submitted:\n  "
+                            + String.join("\n  ", disagreements));
+        }
+
+        return new Passed(checked);
     }
 }

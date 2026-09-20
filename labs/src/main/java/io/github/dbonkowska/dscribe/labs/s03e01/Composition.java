@@ -46,6 +46,11 @@ final class Composition {
         this.threshold = threshold;
     }
 
+    /** The stance that means trouble — the only one the submission turns on. */
+    String problem() {
+        return problem;
+    }
+
     /**
      * Splits a whole into its parts.
      *

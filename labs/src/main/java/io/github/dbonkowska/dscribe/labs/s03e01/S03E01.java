@@ -200,6 +200,17 @@ public class S03E01 {
                 List<String> remaining = notes.stream().filter(n -> !noteStances.containsKey(n)).toList();
                 System.out.println("Falling back to whole notes: " + remaining.size() + " more to judge");
                 noteStances.putAll(judge.stances(remaining));
+
+                // the gate above scored the part verdicts, and this branch submits note verdicts
+                // instead — verdicts no label has been compared against. Only one direction of the
+                // composition rule survives the change of unit, and it is checked here.
+                Evaluation.Passed derived = Evaluation.checkDerived(labels, noteStances, composition);
+                System.out.println("Derived gate: " + derived.checked() + " notes carrying a"
+                        + " problem-labelled phrase, all claiming a problem");
+                transcript.note("gate (note level)", derived.checked()
+                        + " notes carry a phrase labelled '" + task.stance().problem()
+                        + "' and every one of them claims a problem. Weaker than the phrase-level"
+                        + " gate: it says nothing about the notes that carry no labelled phrase.");
             }
 
             // --- fan out ----------------------------------------------------------------------

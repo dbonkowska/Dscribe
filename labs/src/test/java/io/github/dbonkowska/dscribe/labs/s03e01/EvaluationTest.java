@@ -104,6 +104,64 @@ class EvaluationTest {
         assertTrue(thrown.getMessage().contains("a phrase since rewritten"), thrown::getMessage);
     }
 
+    private static Composition composition() {
+        return new Composition(",", PROBLEM, 0.9);
+    }
+
+    /**
+     * The fallback branch submits whole-level verdicts, which no label was ever compared against.
+     * What survives the change of unit is one direction of the composition rule.
+     */
+    @Test
+    void passesWhenEveryWholeCarryingAProblemPartClaimsOne() {
+        Evaluation.Passed passed = Evaluation.checkDerived(
+                labels("figures look wrong", PROBLEM, "all steady", CLEAR),
+                judged("opened well, figures look wrong", PROBLEM, "all steady, signed off", CLEAR),
+                composition());
+
+        assertEquals(1, passed.checked(), "only the whole carrying a problem part is checkable");
+    }
+
+    @Test
+    void refusesAWholeCarryingAProblemPartThatWasJudgedClear() {
+        IllegalStateException thrown = assertThrows(IllegalStateException.class, () ->
+                Evaluation.checkDerived(
+                        labels("figures look wrong", PROBLEM),
+                        judged("opened well, figures look wrong", CLEAR),
+                        composition()));
+
+        assertTrue(thrown.getMessage().contains("figures look wrong"),
+                () -> "it has to name the part that should have carried it: " + thrown.getMessage());
+    }
+
+    /**
+     * The direction that must <em>not</em> be checked. A whole containing a part labelled clear may
+     * still claim a problem, because another of its parts can — that is the composition rule, not a
+     * contradiction of it. A symmetric check here would refuse correct runs, which is worse than
+     * the gap it would close.
+     */
+    @Test
+    void acceptsAWholeThatClaimsAProblemDespiteCarryingAClearPart() {
+        Evaluation.Passed passed = Evaluation.checkDerived(
+                labels("all steady", CLEAR, "figures look wrong", PROBLEM),
+                judged("all steady, figures look wrong", PROBLEM),
+                composition());
+
+        assertEquals(1, passed.checked());
+    }
+
+    /** Labels with nothing to say about problems cannot check this direction at all. */
+    @Test
+    void refusesWhenNoLabelMarksAProblem() {
+        IllegalStateException thrown = assertThrows(IllegalStateException.class, () ->
+                Evaluation.checkDerived(
+                        labels("all steady", CLEAR),
+                        judged("all steady, signed off", CLEAR),
+                        composition()));
+
+        assertTrue(thrown.getMessage().toLowerCase().contains("problem"), thrown::getMessage);
+    }
+
     /** A gate that checks nothing passes everything, and says "passed" while doing it. */
     @Test
     void refusesAnEmptyLabelSet() {

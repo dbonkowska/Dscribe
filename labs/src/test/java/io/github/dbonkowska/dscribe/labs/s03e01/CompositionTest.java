@@ -55,6 +55,34 @@ class CompositionTest {
         return stances;
     }
 
+    /**
+     * This method defines the deduplication key for the whole run — what counts as one phrase, and
+     * therefore what gets judged once. It is self-consistent by construction, since the same method
+     * builds the keys and reads them back, so a change here would silently re-partition the
+     * vocabulary with every other test still green.
+     */
+    @Test
+    void splitsOnTheSeparatorAndStripsSurroundingSpace() {
+        assertEquals(
+                List.of("opened well", "held steady", "closed out"),
+                composition(0.9).parts("opened well,  held steady ,closed out"));
+    }
+
+    /** A trailing stop is punctuation, not part of the phrase: the same words are the same key. */
+    @Test
+    void stripsATrailingStopSoAPhraseIsOneKeyWhereverItSits() {
+        Composition composition = composition(0.9);
+
+        assertEquals(List.of("closed out"), composition.parts("closed out."));
+        assertEquals(composition.parts("closed out"), composition.parts("closed out."));
+    }
+
+    /** A trailing separator would otherwise contribute an empty phrase for the model to judge. */
+    @Test
+    void dropsEmptyPartsRatherThanJudgingThem() {
+        assertEquals(List.of("only this"), composition(0.9).parts("only this, ,"));
+    }
+
     @Test
     void trustsTheFinerUnitWhenEveryComposedStanceAgrees() {
         Composition.Agreement agreement = composition(0.9).over(

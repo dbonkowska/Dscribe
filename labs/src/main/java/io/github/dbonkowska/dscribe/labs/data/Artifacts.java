@@ -78,8 +78,9 @@ public record Artifacts(Path dir) {
      * name landing outside the target refuses the whole archive rather than that one entry: a
      * tampered archive is not something to trust the rest of.
      *
-     * <p>Names are decoded as UTF-8 explicitly. The platform default would mangle a non-ASCII
-     * entry name into a different path on one machine and not another.
+     * <p>Names are decoded as UTF-8 explicitly. That states the intent rather than fixing a bug —
+     * {@code ZipFile} already defaults to UTF-8 for entry names — and what it guards against is
+     * someone later passing a charset that is not.
      *
      * <p>Entries are written into a staging directory beside the target and moved into place once
      * the last one lands, so the target only ever exists complete. The skip above makes that

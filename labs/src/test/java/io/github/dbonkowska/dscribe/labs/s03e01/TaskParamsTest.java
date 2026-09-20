@@ -141,6 +141,22 @@ class TaskParamsTest {
     }
 
     /**
+     * A whole block absent, rather than one key of it. These bind to null and are refused by a
+     * different message from the per-key one — the message that lists what to write — so it is a
+     * different path and needs its own cases.
+     */
+    @ParameterizedTest
+    @ValueSource(strings = {"archive.", "fields.", "stance.", "judge."})
+    void refusesAWholeBlockThatWasNeverWritten(String prefix) {
+        RuntimeException thrown =
+                assertThrows(RuntimeException.class, () -> bind(withoutAllUnder(prefix)));
+
+        String key = prefix.substring(0, prefix.length() - 1);
+        assertTrue(thrown.getMessage().contains(key),
+                () -> "it has to name the block to write: " + thrown.getMessage());
+    }
+
+    /**
      * The channel list is the entire deterministic pass. With none of it, nothing is ever
      * range-checked, every record reads as clean, and the run submits whatever the notes alone
      * produced — a plausible answer, quietly missing a whole category.

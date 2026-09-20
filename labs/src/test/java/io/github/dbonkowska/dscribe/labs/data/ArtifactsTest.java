@@ -202,6 +202,24 @@ class ArtifactsTest {
         assertEquals("x", text(artifacts.file("bundle/a.json")));
     }
 
+    /**
+     * A non-ASCII entry name must land on the path it names.
+     *
+     * <p>A round-trip guard rather than proof that the explicit charset is load-bearing: both
+     * {@code ZipOutputStream} and {@code ZipFile} already default to UTF-8 for entry names, so
+     * this would pass without it. What it catches is a future change that hands either side a
+     * different charset.
+     */
+    @Test
+    void unpacksAnEntryWhoseNameIsNotAscii(@TempDir Path root) throws IOException {
+        Artifacts artifacts = Artifacts.of(root, "x01");
+        zip(artifacts.file("bundle.zip"), entries(DIACRITICS + ".json", "{\"n\":1}"));
+
+        artifacts.unzip("bundle.zip", "bundle");
+
+        assertEquals("{\"n\":1}", text(artifacts.file("bundle/" + DIACRITICS + ".json")));
+    }
+
     private static String text(Path file) throws IOException {
         return Files.readString(file, StandardCharsets.UTF_8);
     }
