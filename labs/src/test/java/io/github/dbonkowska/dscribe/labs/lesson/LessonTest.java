@@ -25,6 +25,8 @@ class LessonTest {
 
     record Params(String colour, int count, List<String> flavours) {}
 
+    record Label(String text, String stance) {}
+
     private static LabsConfig configPointingAt(Path lessonsDir) {
         return new LabsConfig(
                 new LabsConfig.Llm("k", "m", null, "https://llm.test"),
@@ -73,6 +75,44 @@ class LessonTest {
         Files.writeString(lesson(root, "x01").resolve("system.md"), "jaźń", StandardCharsets.UTF_8);
 
         assertEquals("jaźń", Lesson.of(configPointingAt(root), "x01").prompt("system.md"));
+    }
+
+    /**
+     * A bundle file that is neither a prompt nor properties. Both elements and every component
+     * have to bind — a component whose name misses leaves a null, and a label carrying a null
+     * stance would compare unequal to everything and fail the gate it was written to guard.
+     */
+    @Test
+    void bindsEveryRecordInAJsonList(@TempDir Path root) throws IOException {
+        Files.writeString(lesson(root, "x01").resolve("eval.json"), """
+                [{"text":"a","stance":"ok"},{"text":"b","stance":"problem"}]
+                """, StandardCharsets.UTF_8);
+
+        List<Label> labels = Lesson.of(configPointingAt(root), "x01").jsonList("eval.json", Label.class);
+
+        assertEquals(List.of(new Label("a", "ok"), new Label("b", "problem")), labels);
+    }
+
+    @Test
+    void readsAJsonListAsUtf8(@TempDir Path root) throws IOException {
+        Files.writeString(lesson(root, "x01").resolve("eval.json"), """
+                [{"text":"zażółć gęślą","stance":"ok"}]
+                """, StandardCharsets.UTF_8);
+
+        List<Label> labels = Lesson.of(configPointingAt(root), "x01").jsonList("eval.json", Label.class);
+
+        assertEquals("zażółć gęślą", labels.getFirst().text());
+    }
+
+    @Test
+    void namesTheFileWhenThereIsNoJsonListToRead(@TempDir Path root) throws IOException {
+        lesson(root, "x01");
+        Lesson lesson = Lesson.of(configPointingAt(root), "x01");
+
+        RuntimeException thrown =
+                assertThrows(RuntimeException.class, () -> lesson.jsonList("eval.json", Label.class));
+
+        assertTrue(thrown.getMessage().contains("eval.json"), thrown::getMessage);
     }
 
     @Test
