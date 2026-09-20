@@ -1,6 +1,9 @@
 package io.github.dbonkowska.dscribe.labs.lesson;
 
 import io.github.dbonkowska.dscribe.labs.config.LabsConfig;
+import tools.jackson.databind.DeserializationFeature;
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 import tools.jackson.dataformat.javaprop.JavaPropsMapper;
 
 import java.io.IOException;
@@ -8,6 +11,7 @@ import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 
 /**
  * A lesson's inputs, kept outside the repository.
@@ -26,6 +30,10 @@ import java.nio.file.Path;
 public record Lesson(Path dir) {
 
     private static final JavaPropsMapper PROPS = new JavaPropsMapper();
+
+    private static final ObjectMapper JSON = JsonMapper.builder()
+            .disable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES)
+            .build();
 
     public static Lesson of(LabsConfig config, String id) {
         Path dir = config.lessonsDir().resolve(id);
@@ -50,6 +58,21 @@ public record Lesson(Path dir) {
      */
     public <T> T task(Class<T> type) {
         return PROPS.readValue(read(dir.resolve("task.properties")), type);
+    }
+
+    /**
+     * Reads a bundle file that is a JSON array of records. Pass the file name, e.g.
+     * {@code "eval.json"}.
+     *
+     * <p>A third kind of bundle file, beside the prompts and {@code task.properties}. It exists
+     * because a hand-labelled sample is a list of pairs whose left-hand side is free text —
+     * properties keys cannot carry that, and a prompt has no structure to bind.
+     *
+     * <p>Unknown fields are ignored, as in {@code Artifacts}: a file may carry a note to whoever
+     * maintains it that the code has no interest in.
+     */
+    public <T> List<T> jsonList(String fileName, Class<T> element) {
+        return JSON.readerForListOf(element).readValue(read(dir.resolve(fileName)));
     }
 
     private static String read(Path file) {

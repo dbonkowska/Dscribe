@@ -61,6 +61,26 @@ class LlmClientTest {
         assertEquals("caller/pin", recording.model());
     }
 
+    /**
+     * A provider may route elsewhere than it was asked, so spend belongs to the model that
+     * produced the turn rather than the one the request named. Same rule the transcript already
+     * applies to its headings, now applied to the bill.
+     */
+    @Test
+    void attributesSpendToTheModelThatActuallyServedTheTurn() {
+        assertEquals("vendor/served", LlmClient.attributed("vendor/served", "vendor/asked"));
+    }
+
+    /**
+     * A response that names no model must not accumulate a run's whole spend under a blank key —
+     * absent and empty both arrive this way, and neither identifies anything in a report.
+     */
+    @Test
+    void fallsBackToTheRequestedModelWhenTheResponseNamesNone() {
+        assertEquals("vendor/asked", LlmClient.attributed(null, "vendor/asked"));
+        assertEquals("vendor/asked", LlmClient.attributed("   ", "vendor/asked"));
+    }
+
     @Test
     void refusesToSendWhenNothingHasNamedAModel() {
         LlmClient client = clientConfiguredWith(null);

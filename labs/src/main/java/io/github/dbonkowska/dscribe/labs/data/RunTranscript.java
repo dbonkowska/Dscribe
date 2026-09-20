@@ -1,6 +1,7 @@
 package io.github.dbonkowska.dscribe.labs.data;
 
 import io.github.dbonkowska.dscribe.llm.Transcript;
+import io.github.dbonkowska.dscribe.llm.Usage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import tools.jackson.databind.DeserializationFeature;
@@ -17,7 +18,9 @@ import java.nio.file.StandardOpenOption;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.regex.Pattern;
 
@@ -47,9 +50,38 @@ public final class RunTranscript implements Transcript, AutoCloseable {
     private final Path file;
     private final List<String> secrets;
 
+    /** Insertion-ordered, so the table reads in the order the models were first called. */
+    private final Map<String, Spend> spend = new LinkedHashMap<>();
+
     private int turn;
     private int rendered;
     private boolean ended;
+
+    /**
+     * One model's running total. Tokens widen to {@code long} because they are summed over a
+     * whole run; cost stays a {@code double}, which is what the provider sends and is exact
+     * enough for a figure printed to six places.
+     */
+    private record Spend(long prompt, long completion, long total, double cost) {
+
+        static final Spend NONE = new Spend(0, 0, 0, 0);
+
+        Spend plus(Usage usage) {
+            return new Spend(
+                    prompt + usage.promptTokens(),
+                    completion + usage.completionTokens(),
+                    total + usage.totalTokens(),
+                    cost + usage.cost());
+        }
+
+        Spend plus(Spend other) {
+            return new Spend(
+                    prompt + other.prompt,
+                    completion + other.completion,
+                    total + other.total,
+                    cost + other.cost);
+        }
+    }
 
     private RunTranscript(Path file, List<String> secrets) {
         this.file = file;
@@ -171,22 +203,34 @@ public final class RunTranscript implements Transcript, AutoCloseable {
      * claiming one, which is what puts it visibly underneath its cause.
      */
     public Transcript delegated(String label) {
-        return (request, response) -> {
-            JsonNode sent = read(request);
-            JsonNode back = read(response);
+        // an implementation rather than a lambda, and that is the whole point: Transcript.usage is
+        // a default method, so a lambda here would inherit the no-op and a delegated model's spend
+        // would vanish from a table still calling itself per-model
+        return new Transcript() {
 
-            StringBuilder block = new StringBuilder("\n## turn ").append(turn)
-                    .append(" · ").append(label).append(served(sent, back)).append("\n\n");
+            @Override
+            public void append(String request, String response) {
+                JsonNode sent = read(request);
+                JsonNode back = read(response);
 
-            sent.path("messages").forEach(message -> conversation(block, message));
+                StringBuilder block = new StringBuilder("\n## turn ").append(turn)
+                        .append(" · ").append(label).append(served(sent, back)).append("\n\n");
 
-            quote(block, back.at("/choices/0/message/content").asString(""));
+                sent.path("messages").forEach(message -> conversation(block, message));
 
-            block.append("<details><summary>raw exchange</summary>\n\n")
-                    .append("```json\n").append(elided(request.strip())).append("\n```\n\n")
-                    .append("```json\n").append(response.strip()).append("\n```\n</details>\n");
+                quote(block, back.at("/choices/0/message/content").asString(""));
 
-            write(block.toString());
+                block.append("<details><summary>raw exchange</summary>\n\n")
+                        .append("```json\n").append(elided(request.strip())).append("\n```\n\n")
+                        .append("```json\n").append(response.strip()).append("\n```\n</details>\n");
+
+                write(block.toString());
+            }
+
+            @Override
+            public void usage(String model, Usage usage) {
+                RunTranscript.this.usage(model, usage);
+            }
         };
     }
 
@@ -354,6 +398,78 @@ public final class RunTranscript implements Transcript, AutoCloseable {
         write("\n## turn " + turn + " · hub · waited " + waited.toSeconds() + "s — " + reason + "\n");
     }
 
+    /**
+     * Accumulated rather than written per exchange, and that is a deliberate exception to this
+     * file's event-by-event rule. Nothing is lost by it: each turn's raw response block above
+     * already carries the provider's {@code usage} object verbatim, so a process killed outright
+     * loses the summary and none of the data.
+     */
+    @Override
+    public void usage(String model, Usage usage) {
+        spend.compute(model, (name, running) -> (running == null ? Spend.NONE : running).plus(usage));
+    }
+
+    /**
+     * What the run cost, per model, with a grand total.
+     *
+     * <p>Written from {@link #close}, outside the guard that skips the no-outcome note. Behind
+     * that guard it would appear only on runs that died without reporting an outcome — which is
+     * to say, never on a run that finished, which is the one whose price anybody wanted.
+     *
+     * <p>Nothing at all when nothing was spent, rather than an empty table: a run that made no
+     * model call should not have to explain a heading.
+     *
+     * <p>{@link Locale#ROOT} on the cost, because the default locale here renders a decimal comma
+     * and this column is read by machines as often as by people.
+     */
+    private void writeUsage() {
+        if (spend.isEmpty()) {
+            return;
+        }
+
+        StringBuilder table = new StringBuilder("\n## usage\n\n")
+                .append("| model | prompt | completion | total | cost |\n")
+                .append("|---|---|---|---|---|\n");
+
+        Spend all = Spend.NONE;
+        for (Map.Entry<String, Spend> entry : spend.entrySet()) {
+            row(table, entry.getKey(), entry.getValue());
+            all = all.plus(entry.getValue());
+        }
+        row(table, "**total**", all);
+
+        write(table.toString());
+    }
+
+    private static void row(StringBuilder table, String label, Spend spend) {
+        table.append("| ").append(label)
+                .append(" | ").append(spend.prompt())
+                .append(" | ").append(spend.completion())
+                .append(" | ").append(spend.total())
+                .append(" | ").append(String.format(Locale.ROOT, "%.6f", spend.cost()))
+                .append(" |\n");
+    }
+
+    /**
+     * A decision the run took, written where it was taken.
+     *
+     * <p>Every other writer here records an <em>exchange</em> — what was sent somewhere and what
+     * came back. A pipeline reaches the hub having already made every choice that matters, and
+     * none of those choices appear in a request body: what the deterministic pass caught, whether
+     * the labelled gate passed, which deduplication unit the measurement licensed. Printing them
+     * to the console puts them where nothing outlives the terminal.
+     *
+     * <p>Written as it happens rather than gathered into {@link #outcome}, which runs after the
+     * hub has answered. A run killed between the gate and the submission is precisely the case the
+     * event-by-event rule exists for, and it is the run whose decisions are worth reading.
+     *
+     * <p>Anchored to the current turn rather than claiming one, as {@link #hubWait} is, so a note
+     * sits in sequence with the exchanges around it. Turn zero means "before anything was sent".
+     */
+    public void note(String heading, String body) {
+        write("\n## turn " + turn + " · " + heading + "\n\n" + body + "\n");
+    }
+
     /** What the run made of itself: what was submitted, and what the hub said about it. */
     public void outcome(String summary) {
         ended = true;
@@ -371,5 +487,7 @@ public final class RunTranscript implements Transcript, AutoCloseable {
             ended = true;
             write("\n## outcome\n\nRun ended without a recorded outcome — see the last exchange above.\n");
         }
+        // outside the guard on purpose — see writeUsage
+        writeUsage();
     }
 }

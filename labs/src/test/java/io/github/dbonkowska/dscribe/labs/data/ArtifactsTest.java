@@ -7,7 +7,11 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipOutputStream;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -75,6 +79,188 @@ class ArtifactsTest {
         assertTrue(
                 thrown.getMessage().contains(artifacts.file("missing.json").toString()),
                 thrown::getMessage);
+    }
+
+    @Test
+    void unpacksEveryEntryUnderTheEpisodesOwnDirectory(@TempDir Path root) throws IOException {
+        Artifacts artifacts = Artifacts.of(root, "x01");
+        zip(artifacts.file("bundle.zip"), entries("a.json", "{\"n\":1}", "sub/b.json", "{\"n\":2}"));
+
+        artifacts.unzip("bundle.zip", "bundle");
+
+        assertEquals("{\"n\":1}", text(artifacts.file("bundle/a.json")));
+        assertEquals("{\"n\":2}", text(artifacts.file("bundle/sub/b.json")));
+    }
+
+    /**
+     * Fetch once, unpack once. A second run must neither pay for the work again nor quietly
+     * overwrite what an earlier one left behind.
+     */
+    @Test
+    void leavesAnAlreadyUnpackedDirectoryAlone(@TempDir Path root) throws IOException {
+        Artifacts artifacts = Artifacts.of(root, "x01");
+        zip(artifacts.file("bundle.zip"), entries("a.json", "fresh"));
+        artifacts.unzip("bundle.zip", "bundle");
+        Files.writeString(artifacts.file("bundle/a.json"), "sentinel", StandardCharsets.UTF_8);
+
+        artifacts.unzip("bundle.zip", "bundle");
+
+        assertEquals("sentinel", text(artifacts.file("bundle/a.json")));
+    }
+
+    /**
+     * An archive is not a trusted input just because we downloaded it. An entry named its way out
+     * of the target directory writes wherever it likes, and nothing downstream would notice.
+     *
+     * <p>The escaping entry sits <em>second</em> on purpose: a guard that inspects only the first
+     * entry passes this fixture's mirror image and guards nothing. Nothing at all is written —
+     * the whole archive is refused, not the one entry, so a partial extraction cannot be mistaken
+     * for a finished one by the skip above.
+     */
+    @Test
+    void refusesAnEntryThatWouldLandOutsideTheTargetDirectory(@TempDir Path root) throws IOException {
+        Artifacts artifacts = Artifacts.of(root, "x01");
+        zip(artifacts.file("bundle.zip"), entries("ok.json", "fine", "../escape.txt", "owned"));
+
+        RuntimeException thrown =
+                assertThrows(RuntimeException.class, () -> artifacts.unzip("bundle.zip", "bundle"));
+
+        assertTrue(thrown.getMessage().contains("../escape.txt"), thrown::getMessage);
+        assertFalse(Files.exists(artifacts.file("escape.txt")), "nothing may land outside");
+        assertFalse(Files.exists(artifacts.file("bundle/ok.json")), "nor may the entries before it");
+    }
+
+    /**
+     * The other escape shape, and the one any check on the name itself misses. This entry
+     * traverses nowhere — it discards the target. Resolving {@code /escape.txt} against
+     * {@code C:\...\x01\bundle} yields {@code C:\escape.txt}, and notably {@code isAbsolute()} is
+     * <em>false</em> for it on Windows, so a guard written around that flag would wave it
+     * through. Comparing the resolved path against the target is what catches all three shapes:
+     * a walk-up, a rooted name, and a fully qualified one.
+     *
+     * <p>Nothing is asserted about the world outside the temporary directory, deliberately: a
+     * guard that let this through would be writing to the drive root, and a test should not need
+     * that to have happened in order to pass.
+     */
+    @Test
+    void refusesAnEntryNamedAsARootedPath(@TempDir Path root) throws IOException {
+        Artifacts artifacts = Artifacts.of(root, "x01");
+        zip(artifacts.file("bundle.zip"), entries("ok.json", "fine", "/escape.txt", "owned"));
+
+        RuntimeException thrown =
+                assertThrows(RuntimeException.class, () -> artifacts.unzip("bundle.zip", "bundle"));
+
+        assertTrue(thrown.getMessage().contains("/escape.txt"), thrown::getMessage);
+        assertFalse(Files.exists(artifacts.file("bundle/ok.json")), "the whole archive is refused");
+    }
+
+    /**
+     * The hazard the skip above creates. An unpack interrupted part-way — a Ctrl-C, a full disk —
+     * leaves the target non-empty and short, and every later run reads it as finished. Nothing
+     * downstream notices: a corpus missing half its records submits a plausible answer against an
+     * oracle that names nothing.
+     *
+     * <p>So the target is only ever moved into place whole. What an interrupted run leaves behind
+     * is the staging directory, which is not the target and is discarded on the next attempt.
+     */
+    @Test
+    void ignoresAPartialUnpackLeftBehindByAnInterruptedRun(@TempDir Path root) throws IOException {
+        Artifacts artifacts = Artifacts.of(root, "x01");
+        zip(artifacts.file("bundle.zip"), entries("a.json", "{\"n\":1}", "sub/b.json", "{\"n\":2}"));
+
+        // What a killed run leaves. The stale entry is one the archive does NOT carry: seeded with
+        // a name the archive also has, extraction would overwrite it and every assertion below
+        // would hold whether or not staging was cleared — a test unable to fail for its own reason.
+        Files.createDirectories(artifacts.file("bundle.unpacking"));
+        Files.writeString(
+                artifacts.file("bundle.unpacking/stale.json"), "from a dead run", StandardCharsets.UTF_8);
+
+        artifacts.unzip("bundle.zip", "bundle");
+
+        assertEquals("{\"n\":1}", text(artifacts.file("bundle/a.json")));
+        assertEquals("{\"n\":2}", text(artifacts.file("bundle/sub/b.json")));
+        assertFalse(Files.exists(artifacts.file("bundle/stale.json")),
+                "a stale entry from an interrupted run must not survive into the target");
+        assertFalse(Files.exists(artifacts.file("bundle.unpacking")), "staging is not left behind");
+    }
+
+    @Test
+    void leavesNoStagingDirectoryBehindOnASuccessfulUnpack(@TempDir Path root) throws IOException {
+        Artifacts artifacts = Artifacts.of(root, "x01");
+        zip(artifacts.file("bundle.zip"), entries("a.json", "x"));
+
+        artifacts.unzip("bundle.zip", "bundle");
+
+        assertFalse(Files.exists(artifacts.file("bundle.unpacking")), "staging is not left behind");
+    }
+
+    /**
+     * An archive with no entries. Nothing here has to succeed usefully — the caller finds an empty
+     * corpus and says so — but the failure must not be about a directory the caller never named.
+     */
+    @Test
+    void unpacksAnEmptyArchiveWithoutNamingAnInternalPath(@TempDir Path root) throws IOException {
+        Artifacts artifacts = Artifacts.of(root, "x01");
+        zip(artifacts.file("bundle.zip"), entries());
+
+        artifacts.unzip("bundle.zip", "bundle");
+
+        assertTrue(Files.isDirectory(artifacts.file("bundle")));
+        assertFalse(Files.exists(artifacts.file("bundle.unpacking")));
+    }
+
+    /** An empty directory is not a finished unpack, and must not block the move into place. */
+    @Test
+    void unpacksIntoADirectoryThatExistsButIsEmpty(@TempDir Path root) throws IOException {
+        Artifacts artifacts = Artifacts.of(root, "x01");
+        zip(artifacts.file("bundle.zip"), entries("a.json", "x"));
+        Files.createDirectories(artifacts.file("bundle"));
+
+        artifacts.unzip("bundle.zip", "bundle");
+
+        assertEquals("x", text(artifacts.file("bundle/a.json")));
+    }
+
+    /**
+     * A non-ASCII entry name must land on the path it names.
+     *
+     * <p>A round-trip guard rather than proof that the explicit charset is load-bearing: both
+     * {@code ZipOutputStream} and {@code ZipFile} already default to UTF-8 for entry names, so
+     * this would pass without it. What it catches is a future change that hands either side a
+     * different charset.
+     */
+    @Test
+    void unpacksAnEntryWhoseNameIsNotAscii(@TempDir Path root) throws IOException {
+        Artifacts artifacts = Artifacts.of(root, "x01");
+        zip(artifacts.file("bundle.zip"), entries(DIACRITICS + ".json", "{\"n\":1}"));
+
+        artifacts.unzip("bundle.zip", "bundle");
+
+        assertEquals("{\"n\":1}", text(artifacts.file("bundle/" + DIACRITICS + ".json")));
+    }
+
+    private static String text(Path file) throws IOException {
+        return Files.readString(file, StandardCharsets.UTF_8);
+    }
+
+    /** Insertion-ordered, because which entry comes second is the point of one test above. */
+    private static Map<String, String> entries(String... nameThenContent) {
+        Map<String, String> entries = new LinkedHashMap<>();
+        for (int i = 0; i < nameThenContent.length; i += 2) {
+            entries.put(nameThenContent[i], nameThenContent[i + 1]);
+        }
+        return entries;
+    }
+
+    private static void zip(Path target, Map<String, String> entries) throws IOException {
+        Files.createDirectories(target.getParent());
+        try (ZipOutputStream out = new ZipOutputStream(Files.newOutputStream(target))) {
+            for (Map.Entry<String, String> entry : entries.entrySet()) {
+                out.putNextEntry(new ZipEntry(entry.getKey()));
+                out.write(entry.getValue().getBytes(StandardCharsets.UTF_8));
+                out.closeEntry();
+            }
+        }
     }
 
     @Test
