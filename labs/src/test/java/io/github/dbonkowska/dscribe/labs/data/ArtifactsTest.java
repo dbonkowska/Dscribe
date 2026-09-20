@@ -154,6 +154,54 @@ class ArtifactsTest {
         assertFalse(Files.exists(artifacts.file("bundle/ok.json")), "the whole archive is refused");
     }
 
+    /**
+     * The hazard the skip above creates. An unpack interrupted part-way — a Ctrl-C, a full disk —
+     * leaves the target non-empty and short, and every later run reads it as finished. Nothing
+     * downstream notices: a corpus missing half its records submits a plausible answer against an
+     * oracle that names nothing.
+     *
+     * <p>So the target is only ever moved into place whole. What an interrupted run leaves behind
+     * is the staging directory, which is not the target and is discarded on the next attempt.
+     */
+    @Test
+    void ignoresAPartialUnpackLeftBehindByAnInterruptedRun(@TempDir Path root) throws IOException {
+        Artifacts artifacts = Artifacts.of(root, "x01");
+        zip(artifacts.file("bundle.zip"), entries("a.json", "{\"n\":1}", "sub/b.json", "{\"n\":2}"));
+
+        // what a killed run leaves: some of the entries, under the staging name
+        Files.createDirectories(artifacts.file("bundle.unpacking"));
+        Files.writeString(
+                artifacts.file("bundle.unpacking/a.json"), "half-written", StandardCharsets.UTF_8);
+
+        artifacts.unzip("bundle.zip", "bundle");
+
+        assertEquals("{\"n\":1}", text(artifacts.file("bundle/a.json")));
+        assertEquals("{\"n\":2}", text(artifacts.file("bundle/sub/b.json")));
+        assertFalse(Files.exists(artifacts.file("bundle.unpacking")), "staging is not left behind");
+    }
+
+    @Test
+    void leavesNoStagingDirectoryBehindOnASuccessfulUnpack(@TempDir Path root) throws IOException {
+        Artifacts artifacts = Artifacts.of(root, "x01");
+        zip(artifacts.file("bundle.zip"), entries("a.json", "x"));
+
+        artifacts.unzip("bundle.zip", "bundle");
+
+        assertFalse(Files.exists(artifacts.file("bundle.unpacking")), "staging is not left behind");
+    }
+
+    /** An empty directory is not a finished unpack, and must not block the move into place. */
+    @Test
+    void unpacksIntoADirectoryThatExistsButIsEmpty(@TempDir Path root) throws IOException {
+        Artifacts artifacts = Artifacts.of(root, "x01");
+        zip(artifacts.file("bundle.zip"), entries("a.json", "x"));
+        Files.createDirectories(artifacts.file("bundle"));
+
+        artifacts.unzip("bundle.zip", "bundle");
+
+        assertEquals("x", text(artifacts.file("bundle/a.json")));
+    }
+
     private static String text(Path file) throws IOException {
         return Files.readString(file, StandardCharsets.UTF_8);
     }

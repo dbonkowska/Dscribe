@@ -14,6 +14,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.util.Comparator;
 import java.util.List;
 import java.util.stream.Stream;
 import java.util.zip.ZipEntry;
@@ -74,13 +75,19 @@ public record Artifacts(Path dir) {
      * produced.
      *
      * <p>Every entry name is resolved and checked <em>before</em> a single byte is written, and a
-     * name landing outside the target refuses the whole archive rather than that one entry. Two
-     * reasons for whole rather than one: a tampered archive is not something to partially trust,
-     * and a partial extraction would leave the target non-empty, so the skip above would read it
-     * as finished on the next run and never look again.
+     * name landing outside the target refuses the whole archive rather than that one entry: a
+     * tampered archive is not something to trust the rest of.
      *
      * <p>Names are decoded as UTF-8 explicitly. The platform default would mangle a non-ASCII
      * entry name into a different path on one machine and not another.
+     *
+     * <p>Entries are written into a staging directory beside the target and moved into place once
+     * the last one lands, so the target only ever exists complete. The skip above makes that
+     * necessary rather than tidy: extracting in place, an unpack interrupted half-way — a Ctrl-C,
+     * a full disk, a killed process — would leave the target non-empty and short, and every later
+     * run would read it as finished. A corpus missing half its records then submits a plausible
+     * answer to an oracle that names nothing. Checking every entry before writing any closes that
+     * for a hostile archive; only the move closes it for an interrupted one.
      */
     public void unzip(String archive, String intoDir) {
         Path target = file(intoDir);
@@ -89,7 +96,11 @@ public record Artifacts(Path dir) {
         }
 
         Path source = file(archive);
-        Path root = target.toAbsolutePath().normalize();
+        Path staging = file(intoDir + ".unpacking");
+        Path root = staging.toAbsolutePath().normalize();
+
+        // whatever a killed run left under the staging name is partial by definition
+        deleteTree(staging);
 
         try (ZipFile zip = new ZipFile(source.toFile(), StandardCharsets.UTF_8)) {
             List<? extends ZipEntry> entries = zip.stream().toList();
@@ -115,8 +126,33 @@ public record Artifacts(Path dir) {
                     Files.copy(in, destination, StandardCopyOption.REPLACE_EXISTING);
                 }
             }
+
+            // an empty target is not a finished unpack, but it would still block the move
+            if (Files.isDirectory(target)) {
+                Files.delete(target);
+            }
+            Files.move(staging, target, StandardCopyOption.ATOMIC_MOVE);
+
         } catch (IOException e) {
             throw new UncheckedIOException("Cannot unzip " + source, e);
+        }
+    }
+
+    /**
+     * Removes a directory and everything under it, tolerating its absence.
+     *
+     * <p>Only ever applied to the staging path, which this class owns and nothing else reads.
+     */
+    private static void deleteTree(Path dir) {
+        if (!Files.exists(dir)) {
+            return;
+        }
+        try (Stream<Path> paths = Files.walk(dir)) {
+            for (Path path : paths.sorted(Comparator.reverseOrder()).toList()) {
+                Files.delete(path);
+            }
+        } catch (IOException e) {
+            throw new UncheckedIOException("Cannot clear " + dir, e);
         }
     }
 
