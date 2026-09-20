@@ -57,6 +57,7 @@ final class ShellTool {
 
     private final Post hub;
     private final Spec spec;
+    private final Guard guard;
     private final RetryPolicy policy;
     private final Sleeper sleeper;
 
@@ -66,6 +67,7 @@ final class ShellTool {
     ShellTool(Post hub, Spec spec, RetryPolicy policy, Sleeper sleeper) {
         this.hub = hub;
         this.spec = spec;
+        this.guard = new Guard(spec.forbidden());
         this.policy = policy;
         this.sleeper = sleeper;
     }
@@ -89,6 +91,13 @@ final class ShellTool {
         if (command == null || command.isBlank()) {
             throw new IllegalArgumentException("command is blank. Nothing was sent. Write a command to run.");
         }
+
+        // before anything is counted or sent: a refused command must cost nothing
+        guard.violated(command).ifPresent(root -> {
+            throw new IllegalArgumentException(
+                    "The command addresses " + root + ", which is off limits. Nothing was sent. Choose a"
+                            + " command that does not touch it.");
+        });
 
         sent++;
         String body = hub.post("command " + sent, spec.path(), Map.of(spec.commandKey(), command));

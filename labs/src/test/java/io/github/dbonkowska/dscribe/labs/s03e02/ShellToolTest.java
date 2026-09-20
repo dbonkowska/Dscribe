@@ -13,6 +13,7 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * The one door the model has to a shell it cannot see into.
@@ -91,5 +92,30 @@ class ShellToolTest {
         JsonNode properties = tool().spec().function().parameters().at("/properties");
 
         assertEquals(List.of("command"), properties.propertyNames().stream().toList());
+    }
+
+    /**
+     * A refused command costs nothing: the model is told which root it touched, and is told that
+     * nothing was sent, so it does not wonder whether the command ran.
+     */
+    @Test
+    void refusesACommandThatAddressesAForbiddenRootBeforeSendingIt() {
+        shell = shell(List.of("zone"));
+
+        IllegalArgumentException thrown = assertThrows(IllegalArgumentException.class,
+                () -> tool().handler().apply(new ShellTool.Command("cat ./zone/a")));
+
+        assertTrue(thrown.getMessage().contains("zone"), thrown::getMessage);
+        assertTrue(thrown.getMessage().contains("Nothing was sent"), thrown::getMessage);
+        assertEquals(0, posted.size(), "the refusal has to come before the request");
+    }
+
+    @Test
+    void sendsACommandThatOnlyContainsARootsName() {
+        shell = shell(List.of("zone"));
+
+        tool().handler().apply(new ShellTool.Command("cat ozone/a"));
+
+        assertEquals(1, posted.size());
     }
 }
