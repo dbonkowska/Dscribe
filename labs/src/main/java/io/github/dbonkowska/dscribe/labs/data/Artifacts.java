@@ -6,13 +6,18 @@ import tools.jackson.databind.SerializationFeature;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.Reader;
 import java.io.UncheckedIOException;
 import java.io.Writer;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.util.List;
+import java.util.stream.Stream;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipFile;
 
 /**
  * One lesson's runtime files — what it downloaded, and what it produced for the next lesson to
@@ -58,6 +63,71 @@ public record Artifacts(Path dir) {
             return MAPPER.readerForListOf(element).readValue(reader);
         } catch (IOException e) {
             throw new UncheckedIOException("Cannot read " + path, e);
+        }
+    }
+
+    /**
+     * Unpacks an archive alongside it, once.
+     *
+     * <p>Skipped when the target already holds something: an archive is fetched once and unpacked
+     * once, and a later run neither pays for the work again nor overwrites what an earlier one
+     * produced.
+     *
+     * <p>Every entry name is resolved and checked <em>before</em> a single byte is written, and a
+     * name landing outside the target refuses the whole archive rather than that one entry. Two
+     * reasons for whole rather than one: a tampered archive is not something to partially trust,
+     * and a partial extraction would leave the target non-empty, so the skip above would read it
+     * as finished on the next run and never look again.
+     *
+     * <p>Names are decoded as UTF-8 explicitly. The platform default would mangle a non-ASCII
+     * entry name into a different path on one machine and not another.
+     */
+    public void unzip(String archive, String intoDir) {
+        Path target = file(intoDir);
+        if (unpacked(target)) {
+            return;
+        }
+
+        Path source = file(archive);
+        Path root = target.toAbsolutePath().normalize();
+
+        try (ZipFile zip = new ZipFile(source.toFile(), StandardCharsets.UTF_8)) {
+            List<? extends ZipEntry> entries = zip.stream().toList();
+
+            for (ZipEntry entry : entries) {
+                Path destination = root.resolve(entry.getName()).normalize();
+                if (!destination.startsWith(root)) {
+                    throw new IllegalStateException(
+                            "Refusing to unpack " + source + ": entry '" + entry.getName()
+                                    + "' resolves to " + destination + ", outside " + root
+                                    + ". Nothing was written.");
+                }
+            }
+
+            for (ZipEntry entry : entries) {
+                Path destination = root.resolve(entry.getName()).normalize();
+                if (entry.isDirectory()) {
+                    Files.createDirectories(destination);
+                    continue;
+                }
+                Files.createDirectories(destination.getParent());
+                try (InputStream in = zip.getInputStream(entry)) {
+                    Files.copy(in, destination, StandardCopyOption.REPLACE_EXISTING);
+                }
+            }
+        } catch (IOException e) {
+            throw new UncheckedIOException("Cannot unzip " + source, e);
+        }
+    }
+
+    private static boolean unpacked(Path target) {
+        if (!Files.isDirectory(target)) {
+            return false;
+        }
+        try (Stream<Path> entries = Files.list(target)) {
+            return entries.findAny().isPresent();
+        } catch (IOException e) {
+            throw new UncheckedIOException("Cannot inspect " + target, e);
         }
     }
 
