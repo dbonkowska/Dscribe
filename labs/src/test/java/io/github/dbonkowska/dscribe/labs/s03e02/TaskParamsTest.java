@@ -113,4 +113,17 @@ class TaskParamsTest {
 
         assertTrue(thrown.getMessage().contains("forbidden"), thrown::getMessage);
     }
+
+    /** Whichever branch checked the code first would silently win, and the other kind never fire. */
+    @Test
+    void refusesACodeThatMeansTwoThings() {
+        String props = COMPLETE.replace("causedCodes.1=LOCKED", "causedCodes.1=BUSY");
+
+        RuntimeException thrown = assertThrows(RuntimeException.class,
+                () -> new JavaPropsMapper().readValue(props, TaskParams.class));
+
+        assertTrue(thrown.getMessage().contains("BUSY"), thrown::getMessage);
+        assertTrue(thrown.getMessage().contains("transientCodes"), thrown::getMessage);
+        assertTrue(thrown.getMessage().contains("causedCodes"), thrown::getMessage);
+    }
 }

@@ -63,6 +63,16 @@ public record TaskParams(
         forbidden = List.copyOf(forbidden);
         transientCodes = transientCodes == null ? List.of() : List.copyOf(transientCodes);
         causedCodes = causedCodes == null ? List.of() : List.copyOf(causedCodes);
+        // A reply fragment in both lists would be classified by whichever branch runs first, so the
+        // other kind of refusal would silently never be handled.
+        for (String code : transientCodes) {
+            if (causedCodes.contains(code)) {
+                throw new IllegalStateException(
+                        "transientCodes and causedCodes both contain " + code + ". Whichever is checked"
+                                + " first would silently win. Keep it in one of them in the lesson's"
+                                + " task.properties.");
+            }
+        }
     }
 
     /**
