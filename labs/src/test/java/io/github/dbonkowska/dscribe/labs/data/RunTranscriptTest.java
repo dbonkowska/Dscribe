@@ -13,6 +13,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import io.github.dbonkowska.dscribe.labs.TestHeaders;
+import io.github.dbonkowska.dscribe.llm.Usage;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -519,6 +520,77 @@ class RunTranscriptTest {
         transcript.append(request("{\"role\":\"user\",\"content\":\"go\"}"), TEXT_RESPONSE);
 
         assertFalse(contents(transcript).contains("<summary>reasoning"), "no empty fold");
+    }
+
+    /**
+     * What the run cost, per model, at the bottom of the file it already writes. Before this the
+     * only account of a run's price was a dashboard consulted afterwards and aggregated across
+     * every run, which cannot answer "what did *this* one spend".
+     */
+    @Test
+    void totalsEachModelsTokensAndCostWhenItCloses() throws IOException {
+        RunTranscript transcript = open(root());
+
+        transcript.usage("a/one", new Usage(100, 20, 120, 0.001));
+        transcript.usage("a/one", new Usage(100, 20, 120, 0.001));
+        transcript.usage("b/two", new Usage(7, 3, 10, 0.0002));
+        transcript.close();
+
+        String written = contents(transcript);
+        assertTrue(written.contains("## usage"), () -> written);
+        assertTrue(written.contains("| a/one | 200 | 40 | 240 | 0.002000 |"), () -> written);
+        assertTrue(written.contains("| b/two | 7 | 3 | 10 | 0.000200 |"), () -> written);
+        assertTrue(written.contains("| **total** | 207 | 43 | 250 | 0.002200 |"), () -> written);
+    }
+
+    /**
+     * The trap this exists for: {@code close} skips its own note once an outcome has been
+     * recorded, and every run that finishes records one. A usage table written behind that guard
+     * appears only on runs that died — the cost report missing from exactly the runs whose cost
+     * was worth having.
+     */
+    @Test
+    void writesTheUsageTableEvenWhenTheRunReportedAnOutcome() throws IOException {
+        RunTranscript transcript = open(root());
+        transcript.usage("a/one", new Usage(100, 20, 120, 0.001));
+
+        transcript.outcome("done");
+        transcript.close();
+
+        String written = contents(transcript);
+        assertTrue(written.contains("## usage"), () -> written);
+        assertTrue(written.contains("| a/one | 100 | 20 | 120 | 0.001000 |"), () -> written);
+    }
+
+    /**
+     * A delegated exchange is paid for like any other. The seam's usage method has to be a
+     * default so {@code Transcript.NONE} stays a lambda — which means a delegated transcript
+     * returned *as* a lambda silently inherits the no-op, and the table goes on calling itself
+     * per-model while reporting only the main loop.
+     */
+    @Test
+    void countsADelegatedCallsSpendInTheSameTotals() throws IOException {
+        RunTranscript transcript = open(root());
+
+        transcript.usage("a/one", new Usage(100, 20, 120, 0.001));
+        transcript.delegated("vision").usage("c/three", new Usage(5, 1, 6, 0.00005));
+        transcript.close();
+
+        String written = contents(transcript);
+        assertTrue(written.contains("| c/three | 5 | 1 | 6 | 0.000050 |"), () -> written);
+        assertTrue(written.contains("| **total** | 105 | 21 | 126 | 0.001050 |"), () -> written);
+    }
+
+    /** No section at all rather than an empty table, so a run that called nothing says nothing. */
+    @Test
+    void writesNoUsageSectionWhenNothingReportedAny() throws IOException {
+        RunTranscript transcript = open(root());
+
+        transcript.outcome("done");
+        transcript.close();
+
+        String written = contents(transcript);
+        assertFalse(written.contains("## usage"), () -> written);
     }
 
     private static HttpHeaders headers(Map<String, String> values) {

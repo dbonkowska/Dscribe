@@ -121,7 +121,15 @@ public class LlmClient implements ChatTransport {
                 throw new RuntimeException("API error [" + response.statusCode() + "]: " + response.body());
             }
 
-            return MAPPER.readValue(response.body(), ChatResponse.class);
+            ChatResponse parsed = MAPPER.readValue(response.body(), ChatResponse.class);
+
+            // after the status check and the parse, unlike the raw halves above: a call the
+            // provider rejected spent nothing, and one that did not parse has no figure to report
+            if (parsed.usage() != null) {
+                transcript.usage(attributed(parsed.model(), model), parsed.usage());
+            }
+
+            return parsed;
 
         } catch (IOException e) {
             throw new RuntimeException(e);
