@@ -593,6 +593,51 @@ class RunTranscriptTest {
         assertFalse(written.contains("## usage"), () -> written);
     }
 
+    /**
+     * What the run decided, as against what it sent. A pipeline reaches the hub having already
+     * made every choice that matters — what the rules caught, whether the gate passed, which unit
+     * it trusted — and none of that is visible in a request body.
+     */
+    @Test
+    void recordsANoteUnderTheTurnItHappenedIn() throws IOException {
+        RunTranscript transcript = open(root());
+        transcript.append(request("{\"role\":\"user\",\"content\":\"go\"}"), TEXT_RESPONSE);
+
+        transcript.note("gate", "30 labels, all agreeing");
+
+        String written = contents(transcript);
+        assertTrue(written.contains("## turn 1 · gate"), () -> written);
+        assertTrue(written.contains("30 labels, all agreeing"), () -> written);
+    }
+
+    /** Before the first exchange there is no turn yet, and a note then is still worth keeping. */
+    @Test
+    void recordsANoteMadeBeforeAnyModelCall() throws IOException {
+        RunTranscript transcript = open(root());
+
+        transcript.note("rule pass", "46 records");
+
+        String written = contents(transcript);
+        assertTrue(written.contains("## turn 0 · rule pass"), () -> written);
+    }
+
+    /**
+     * The reason this is a seam rather than a line in the outcome. A run killed between the gate
+     * and the submission is exactly the case the event-by-event rule exists for, and an outcome is
+     * written after the hub has answered — too late to say what the run had decided before it
+     * spent.
+     */
+    @Test
+    void writesANoteAsItHappensRatherThanWhenTheRunEnds() throws IOException {
+        RunTranscript transcript = open(root());
+
+        transcript.note("composition", "agreement 1.0, judging by CLAUSE");
+
+        // no close(), no outcome() — the file already has it
+        String written = contents(transcript);
+        assertTrue(written.contains("agreement 1.0"), () -> written);
+    }
+
     private static HttpHeaders headers(Map<String, String> values) {
         return TestHeaders.of(values);
     }

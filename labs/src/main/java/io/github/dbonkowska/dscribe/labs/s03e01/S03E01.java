@@ -135,6 +135,14 @@ public class S03E01 {
                     + violationsByKind);
             System.out.println("Clean, note to read: " + clean.size());
 
+            // to the file, not only the console: a rule firing on nothing — or on everything — is
+            // visible here and nowhere else, and the hub's reply will not mention it
+            transcript.note("rule pass", "| measure | value |\n|---|---|\n"
+                    + "| records read | " + readings.size() + " |\n"
+                    + "| flagged, by rule | " + byRule + " |\n"
+                    + "| violations by kind | " + violationsByKind + " |\n"
+                    + "| clean, note to read | " + clean.size() + " |");
+
             // --- deduplication ----------------------------------------------------------------
             // only clean records reach here. A note agreeing with bad measurements adds no id the
             // measurements have not already produced, so its record is already answered for.
@@ -159,6 +167,10 @@ public class S03E01 {
             Evaluation.Passed passed = Evaluation.check(labels, partStances);
             System.out.println("Evaluation: " + passed.checked() + " labels, all agreeing");
 
+            transcript.note("gate", passed.checked()
+                    + " hand-labelled phrases, all agreeing with the model. Nothing has been"
+                    + " submitted yet.");
+
             // --- is the cheap unit allowed to stand in? ---------------------------------------
             // the first N in file order rather than a random N: reproducibility was preferred to
             // representativeness, so a re-run batches identically and a disagreement can be
@@ -170,6 +182,17 @@ public class S03E01 {
             System.out.println("Composition: " + agreement.rate() + " over " + sample.size()
                     + " sampled notes → judging by " + agreement.unit()
                     + (agreement.disagreed().isEmpty() ? "" : " · disagreed: " + agreement.disagreed()));
+
+            transcript.note("composition", "| measure | value |\n|---|---|\n"
+                    + "| distinct notes | " + notes.size() + " |\n"
+                    + "| distinct parts | " + parts.size() + " |\n"
+                    + "| sampled notes | " + sample.size() + " |\n"
+                    + "| agreement | " + agreement.rate() + " |\n"
+                    + "| threshold | " + task.judge().agreementThreshold() + " |\n"
+                    + "| judging by | " + agreement.unit() + " |\n"
+                    + (agreement.disagreed().isEmpty()
+                            ? ""
+                            : "\nDisagreed:\n\n- " + String.join("\n- ", agreement.disagreed()) + "\n"));
 
             if (agreement.unit() == Composition.Unit.NOTE) {
                 // the fallback is the expensive path by an order of magnitude, and it is taken

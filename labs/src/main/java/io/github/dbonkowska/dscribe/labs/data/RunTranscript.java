@@ -450,6 +450,26 @@ public final class RunTranscript implements Transcript, AutoCloseable {
                 .append(" |\n");
     }
 
+    /**
+     * A decision the run took, written where it was taken.
+     *
+     * <p>Every other writer here records an <em>exchange</em> — what was sent somewhere and what
+     * came back. A pipeline reaches the hub having already made every choice that matters, and
+     * none of those choices appear in a request body: what the deterministic pass caught, whether
+     * the labelled gate passed, which deduplication unit the measurement licensed. Printing them
+     * to the console puts them where nothing outlives the terminal.
+     *
+     * <p>Written as it happens rather than gathered into {@link #outcome}, which runs after the
+     * hub has answered. A run killed between the gate and the submission is precisely the case the
+     * event-by-event rule exists for, and it is the run whose decisions are worth reading.
+     *
+     * <p>Anchored to the current turn rather than claiming one, as {@link #hubWait} is, so a note
+     * sits in sequence with the exchanges around it. Turn zero means "before anything was sent".
+     */
+    public void note(String heading, String body) {
+        write("\n## turn " + turn + " · " + heading + "\n\n" + body + "\n");
+    }
+
     /** What the run made of itself: what was submitted, and what the hub said about it. */
     public void outcome(String summary) {
         ended = true;
