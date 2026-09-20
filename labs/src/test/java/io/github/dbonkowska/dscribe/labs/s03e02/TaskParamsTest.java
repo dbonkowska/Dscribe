@@ -87,4 +87,30 @@ class TaskParamsTest {
 
         assertTrue(thrown.getMessage().contains(key), thrown::getMessage);
     }
+
+    /** An empty list guards nothing, and a guard that guards nothing looks exactly like one that works. */
+    @Test
+    void refusesAFileWithNoForbiddenRoots() {
+        String props = COMPLETE.lines()
+                .filter(line -> !line.startsWith("forbidden."))
+                .collect(Collectors.joining("\n"));
+
+        RuntimeException thrown = assertThrows(RuntimeException.class,
+                () -> new JavaPropsMapper().readValue(props, TaskParams.class));
+
+        assertTrue(thrown.getMessage().contains("forbidden"), thrown::getMessage);
+        assertTrue(thrown.getMessage().contains("no-op"),
+                () -> "it has to say why an empty list is refused: " + thrown.getMessage());
+    }
+
+    /** A blank entry would match every command. */
+    @Test
+    void refusesABlankForbiddenEntry() {
+        String props = COMPLETE.replace("forbidden.2=b", "forbidden.2=");
+
+        RuntimeException thrown = assertThrows(RuntimeException.class,
+                () -> new JavaPropsMapper().readValue(props, TaskParams.class));
+
+        assertTrue(thrown.getMessage().contains("forbidden"), thrown::getMessage);
+    }
 }

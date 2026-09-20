@@ -47,7 +47,20 @@ public record TaskParams(
         }
         requirePrompt(command, "command");
         requirePrompt(submit, "submit");
-        forbidden = forbidden == null ? List.of() : List.copyOf(forbidden);
+        // The one list that cannot be empty: with no roots the guard is a no-op that reads as working.
+        // A blank entry is worse, since it matches every command and the model is refused for nothing.
+        if (forbidden == null || forbidden.isEmpty()) {
+            throw new IllegalStateException(
+                    "forbidden must list at least one root: an empty list makes the guard a no-op, and"
+                            + " nothing in a run would say so. Set forbidden.1, ... in the lesson's"
+                            + " task.properties.");
+        }
+        if (forbidden.stream().anyMatch(root -> root == null || root.isBlank())) {
+            throw new IllegalStateException(
+                    "forbidden holds a blank entry, which would match every command. Remove it or fill"
+                            + " it in in the lesson's task.properties.");
+        }
+        forbidden = List.copyOf(forbidden);
         transientCodes = transientCodes == null ? List.of() : List.copyOf(transientCodes);
         causedCodes = causedCodes == null ? List.of() : List.copyOf(causedCodes);
     }
