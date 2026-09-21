@@ -18,14 +18,16 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * Lets a model drive a multi-step process: it picks a tool, reads the result, and picks again.
  *
- * <p>Two entry points, differing in what ends the run and in what the caller gets back.
+ * <p>Three entry points, differing in what ends the run and in what the caller gets back.
  * {@link #run(List, AnswerTool)} ends when the model calls the answer tool, and hands back what
  * it answered with. {@link #run(List, StopCondition)} ends when a caller-supplied predicate
- * accepts a turn, and hands back the whole conversation.
+ * accepts a turn, and hands back the whole conversation. {@link #run(List, ResultObserver)} ends when a
+ * caller-supplied observer accepts a tool's result, and hands back what it accepted with.
  *
  * <p>The cap counts model round-trips rather than tool calls — a turn with five parallel calls
  * is one iteration. Nothing else ends either loop: a tool failure goes back to the model as text
@@ -107,6 +109,60 @@ public final class Agent {
             // held back rather than appended where they arose: every tool result of a turn has to
             // sit against the assistant turn that asked for it, and a user message wedged between
             // two of them invalidates the next request
+            messages.addAll(attachments);
+        }
+
+        throw new AgentLimitException(maxIterations, messages);
+    }
+
+    /**
+     * Runs until {@code observer} accepts a tool's result, and returns what it accepted with.
+     *
+     * <p>For a run whose end arrives inside a reply rather than in anything the model says. Closing a
+     * {@link StopCondition} over the tool's recorded replies gets the same value, but pays for it
+     * twice: the condition is only asked on the next assistant turn, so one more model call is bought
+     * after the result is already in hand, and a turn carrying several calls goes on dispatching the
+     * rest of them after it. Here the observer is asked after each result, and the first present
+     * value returns before either happens.
+     *
+     * <p>Calls the accepting turn still owes are dropped, and so is anything they attached. What comes
+     * back is a value rather than a conversation, so an unanswered call has nothing to invalidate.
+     * A turn with no calls is nudged and costs an iteration, as under {@link StopCondition}.
+     */
+    public <T> T run(List<Message> seed, ResultObserver<T> observer) {
+        List<ToolSpec> specs = tools.specs();
+        List<Message> messages = new ArrayList<>(seed);
+
+        for (int iteration = 1; iteration <= maxIterations; iteration++) {
+            Message turn = llm.send(messages, specs, "auto").message();
+            messages.add(turn);
+
+            if (!turn.hasToolCalls()) {
+                // the nudge costs an iteration, so it has to be visible while it happens
+                log.info("{}. no tool calls, nudging: {}", iteration, oneLine(turn.text()));
+                messages.add(new Message(
+                        Role.user, "Keep going by calling one of the tools you were given."));
+                continue;
+            }
+
+            List<Message> attachments = new ArrayList<>();
+            for (ToolCall call : turn.toolCalls()) {
+                // logged before it runs, so a model spinning on identical calls is visible live
+                log.info("{}. {} {}", iteration, call.function().name(), call.function().arguments());
+
+                ToolCallMessages produced = tools.invoke(call);
+
+                log.info("   -> {}", oneLine(produced.result().text()));
+
+                messages.add(produced.result());
+                attachments.addAll(produced.attachments());
+
+                Optional<T> ended = observer.observe(call, produced.result());
+                if (ended.isPresent()) {
+                    return ended.get();
+                }
+            }
+            // held back for the same reason as in the other loops
             messages.addAll(attachments);
         }
 
