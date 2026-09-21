@@ -5,6 +5,9 @@ import io.github.dbonkowska.dscribe.labs.hub.Sleeper;
 import io.github.dbonkowska.dscribe.schema.SchemaUtils;
 import io.github.dbonkowska.dscribe.tool.Tool;
 import io.github.dbonkowska.dscribe.tool.ToolOutput;
+import tools.jackson.core.JacksonException;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
 
 import java.time.Duration;
 import java.util.ArrayList;
@@ -25,6 +28,8 @@ import java.util.Optional;
  */
 final class ShellTool {
 
+    private static final ObjectMapper MAPPER = new ObjectMapper();
+
     /**
      * The whole schema the model sees.
      *
@@ -39,12 +44,14 @@ final class ShellTool {
      * @param commandKey     the body key a command travels under
      * @param forbidden      roots a command must not address
      * @param transientCodes reply fragments meaning "try again shortly"
-     * @param causedCodes    reply fragments meaning "your previous command caused this"
+     * @param causedCodes    reply fragments meaning "a command caused this"
      * @param maxReplyChars the most of one reply the model is handed. A file can come back as megabytes, which
      *                      would overflow its context; the start and end are kept. Mechanism, not task content
      * @param ignore         how to recognise a reply that lists paths to avoid, so the guard can learn them
      * @param repeatThreshold how many times in a row the same command is sent before a repeat is refused.
      *                        Mechanism rather than task content, so the runner supplies a constant
+     * @param culpritPointer  a JSON pointer to where a caused refusal names the command it blames, or
+     *                        blank when the exercise's replies name none
      */
     record Spec(
             String path,
@@ -54,7 +61,8 @@ final class ShellTool {
             List<String> causedCodes,
             int repeatThreshold,
             int maxReplyChars,
-            Guard.Learning ignore) {}
+            Guard.Learning ignore,
+            String culpritPointer) {}
 
     /**
      * One POST to the hub, returning the body as it came — {@code HubClient::post}, and a recording
@@ -73,7 +81,6 @@ final class ShellTool {
 
     private final List<String> replies = new ArrayList<>();
     private int sent;
-    private String previous;
     private String lastNormalised;
     private int consecutive;
     private String lastReply;
@@ -140,11 +147,6 @@ final class ShellTool {
         String label = "command " + sent;
         String body = post(label, command);
 
-        // The refusal to a command is often about the one before it, so remember which that was. Updated
-        // for every command that was sent, and never for one the guard turned away.
-        String before = previous;
-        previous = command;
-
         // The number of tries is counted from what was made, never derived from the policy, so the
         // note the model reads is a fact about this command rather than a setting.
         int attempts = 1;
@@ -160,9 +162,9 @@ final class ShellTool {
                 if (!wait.isZero()) {
                     sleeper.await(wait);
                 }
-                String cause = before == null ? "no earlier command was sent" : "caused by: " + before;
                 return ToolOutput.of("[caused refusal " + caused.get() + " · waited "
-                        + show(waited.plus(wait)) + " · not retried · " + cause + "]\n" + shown(body));
+                        + show(waited.plus(wait)) + " · not retried · " + culprit(body, command) + "]\n"
+                        + shown(body));
             }
 
             Optional<String> code = matching(spec.transientCodes(), body);
@@ -182,6 +184,27 @@ final class ShellTool {
             retries++;
             body = post(label + " · retry " + retries, command);
         }
+    }
+
+    /**
+     * What a caused-refusal note says about the command. Only the reply knows which command it
+     * blames: this hub's refusal is often about the command just sent, and sometimes about an earlier
+     * one it names, so guessing from the order of sends would state something the code cannot know.
+     * When the reply names none, the note says only which command it was answering.
+     */
+    private String culprit(String body, String command) {
+        String pointer = spec.culpritPointer();
+        if (pointer != null && !pointer.isBlank()) {
+            try {
+                JsonNode named = MAPPER.readTree(body).at(pointer);
+                if (named.isString() && !named.asString().isBlank()) {
+                    return "caused by: " + named.asString();
+                }
+            } catch (JacksonException e) {
+                // not JSON, so it names nothing
+            }
+        }
+        return "refused: " + command;
     }
 
     /**

@@ -160,4 +160,25 @@ class TaskParamsTest {
 
         assertEquals("[a-z]{40}", params.codePattern());
     }
+
+    /** Optional: a file without it is the same lesson with a plainer note, not a broken one. */
+    @Test
+    void bindsWithoutAPointerToTheCulpritAndWithOne() {
+        assertTrue(new JavaPropsMapper().readValue(COMPLETE, TaskParams.class).shell().culpritPointer() == null);
+
+        String props = COMPLETE.replace("shell.helpCommand=help", "shell.helpCommand=help\nshell.culpritPointer=/a/b");
+
+        assertEquals("/a/b", new JavaPropsMapper().readValue(props, TaskParams.class).shell().culpritPointer());
+    }
+
+    /** A pointer that names no field is read as "nothing found" on every reply, and nothing says so. */
+    @Test
+    void refusesAPointerThatIsNotAJsonPointer() {
+        String props = COMPLETE.replace("shell.helpCommand=help", "shell.helpCommand=help\nshell.culpritPointer=ban.command");
+
+        RuntimeException thrown = assertThrows(RuntimeException.class,
+                () -> new JavaPropsMapper().readValue(props, TaskParams.class));
+
+        assertTrue(thrown.getMessage().contains("shell.culpritPointer"), thrown::getMessage);
+    }
 }

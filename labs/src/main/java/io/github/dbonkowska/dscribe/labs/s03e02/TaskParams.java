@@ -1,5 +1,7 @@
 package io.github.dbonkowska.dscribe.labs.s03e02;
 
+import tools.jackson.core.JsonPointer;
+
 import java.util.List;
 import java.util.regex.Pattern;
 import java.util.regex.PatternSyntaxException;
@@ -10,7 +12,7 @@ import java.util.regex.PatternSyntaxException;
  * <p>Everything the exercise supplies lives outside the repository. The code knows only that there
  * is a shell endpoint taking a command under some key, a set of roots the model must not touch, and
  * two families of refusal the environment answers with — one worth retrying, one caused by the
- * model's own previous command. The words that name them are the exercise's.
+ * model's own command. The words that name them are the exercise's.
  *
  * <p>Lists bind by index: {@code forbidden.1}, {@code transientCodes.1}, and so on.
  *
@@ -23,7 +25,7 @@ import java.util.regex.PatternSyntaxException;
  * @param ignore         how to recognise, in a reply, a file listing paths that are off limits
  * @param forbidden      roots a command must not address
  * @param transientCodes reply fragments meaning "try again shortly"
- * @param causedCodes    reply fragments meaning "your previous command caused this"
+ * @param causedCodes    reply fragments meaning "a command caused this"
  * @param command        the tool that runs one command
  * @param submit         the tool that sends the code the replies produced
  */
@@ -134,13 +136,27 @@ public record TaskParams(
      * @param commandKey  the body key a command travels under
      * @param helpCommand the command whose reply describes the environment, seeded into the
      *                    conversation
+     * @param culpritPointer optional: a JSON pointer to where a refusal names the command it blames.
+     *                    Blank or absent, the note says which command was refused and claims no cause
      */
-    public record Shell(String path, String commandKey, String helpCommand) {
+    public record Shell(String path, String commandKey, String helpCommand, String culpritPointer) {
 
         public Shell {
             require(path, "shell.path");
             require(commandKey, "shell.commandKey");
             require(helpCommand, "shell.helpCommand");
+            // A pointer that names no field reads as "nothing found" on every reply and nothing says so,
+            // so a malformed one is refused here, before anything is spent.
+            if (culpritPointer != null && !culpritPointer.isBlank()) {
+                try {
+                    JsonPointer.compile(culpritPointer);
+                } catch (IllegalArgumentException e) {
+                    throw new IllegalStateException(
+                            "shell.culpritPointer is not a JSON pointer: it starts with a slash and separates"
+                                    + " fields with slashes, as in /a/b. Fix it or remove it in the lesson's"
+                                    + " task.properties.", e);
+                }
+            }
         }
     }
 

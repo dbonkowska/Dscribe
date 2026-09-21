@@ -3,6 +3,8 @@ package io.github.dbonkowska.dscribe.labs.s03e02;
 import io.github.dbonkowska.dscribe.labs.hub.RetryPolicy;
 import io.github.dbonkowska.dscribe.tool.Tool;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
@@ -12,6 +14,7 @@ import java.util.Iterator;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -41,6 +44,9 @@ class ShellToolTest {
     /** Replies come off this queue, one per post; an empty queue answers with a marker. */
     private final List<String> queue = new ArrayList<>();
 
+    /** Blank unless a test says where a refusal names its culprit. */
+    private String culpritPointer = "";
+
     private ShellTool shell = shell(List.of());
 
     private ShellTool shell(List<String> forbidden) {
@@ -59,7 +65,8 @@ class ShellToolTest {
                     posted.add(new Posted(label, path, MAPPER.valueToTree(body)));
                     return replies.hasNext() ? replies.next() : "{\"out\":\"a\"}";
                 },
-                new ShellTool.Spec(PATH, KEY, forbidden, transientCodes, causedCodes, THRESHOLD, MAX_REPLY, LEARNING),
+                new ShellTool.Spec(PATH, KEY, forbidden, transientCodes, causedCodes, THRESHOLD, MAX_REPLY, LEARNING,
+                        culpritPointer),
                 policy,
                 slept::add);
     }
@@ -195,12 +202,15 @@ class ShellToolTest {
     }
 
     /**
-     * Sending the same command again would meet the same refusal, so this waits once, does not
-     * resend, and tells the model the refusal was about the command before, not the one it just wrote.
+     * Sending the same command again would meet the same refusal, so this waits once and does not
+     * resend. The note names the command the reply itself names, which is not necessarily one this
+     * tool sent last.
      */
     @Test
-    void waitsOutACausedRefusalWithoutRetryingAndNamesTheCommandThatCausedIt() {
-        queue.addAll(List.of("{\"out\":\"ok\"}", LOCKED));
+    void waitsOutACausedRefusalWithoutRetryingAndNamesTheCommandTheReplyNames() {
+        culpritPointer = "/ban/command";
+        String banned = "{\"code\":\"LOCKED\",\"ban\":{\"command\":\"cmd-x\"}}";
+        queue.addAll(List.of("{\"out\":\"ok\"}", banned));
         Tool<ShellTool.Command> tool = causedTool();
         tool.handler().apply(new ShellTool.Command("cmd-a"));
 
@@ -209,12 +219,43 @@ class ShellToolTest {
         assertEquals(2, posted.size(), "a caused refusal is not retried");
         assertEquals(List.of(Duration.ofSeconds(1)), slept);
         String firstLine = result.lines().findFirst().orElseThrow();
-        assertTrue(firstLine.contains("caused"), firstLine);
         assertTrue(firstLine.contains("LOCKED"), firstLine);
         assertTrue(firstLine.contains("not retried"), firstLine);
-        assertTrue(firstLine.contains("cmd-a"), "it has to name the earlier command: " + firstLine);
-        assertTrue(result.endsWith(LOCKED), "the raw reply stays beneath the note: " + result);
-        assertEquals(List.of("{\"out\":\"ok\"}", LOCKED), shell.replies(), "the kept replies carry no note");
+        assertTrue(firstLine.contains("caused by: cmd-x"), "it names what the reply names: " + firstLine);
+        assertFalse(firstLine.contains("cmd-a"), "the command before is not a suspect: " + firstLine);
+        assertTrue(result.endsWith(banned), "the raw reply stays beneath the note: " + result);
+        assertEquals(List.of("{\"out\":\"ok\"}", banned), shell.replies(), "the kept replies carry no note");
+    }
+
+    /**
+     * Without a name in the reply the tool knows only which command it was answering, and says that:
+     * it does not claim that command, or any other, was the cause.
+     */
+    @ParameterizedTest
+    @ValueSource(strings = {"{\"code\":\"LOCKED\"}", "{\"code\":\"LOCKED\",\"ban\":{}}", "LOCKED, not json"})
+    void saysWhichCommandWasRefusedWhenTheReplyNamesNoCulprit(String reply) {
+        culpritPointer = "/ban/command";
+        queue.addAll(List.of("{\"out\":\"ok\"}", reply));
+        Tool<ShellTool.Command> tool = causedTool();
+        tool.handler().apply(new ShellTool.Command("cmd-a"));
+
+        String result = (String) tool.handler().apply(new ShellTool.Command("cmd-b")).result();
+
+        String firstLine = result.lines().findFirst().orElseThrow();
+        assertTrue(firstLine.contains("not retried"), firstLine);
+        assertTrue(firstLine.contains("refused: cmd-b"), firstLine);
+        assertFalse(firstLine.contains("caused by"), "nothing is claimed about the cause: " + firstLine);
+    }
+
+    @Test
+    void asksNothingOfTheReplyWhenNoPointerIsConfigured() {
+        queue.add("{\"code\":\"LOCKED\",\"ban\":{\"command\":\"cmd-x\"}}");
+
+        String firstLine = ((String) causedTool().handler().apply(new ShellTool.Command("cmd-a")).result())
+                .lines().findFirst().orElseThrow();
+
+        assertTrue(firstLine.contains("refused: cmd-a"), firstLine);
+        assertFalse(firstLine.contains("cmd-x"), "an unconfigured lookup reads nothing: " + firstLine);
     }
 
     /**
@@ -237,18 +278,6 @@ class ShellToolTest {
         assertTrue(firstLine.contains("2s"), "the wait includes the one already spent: " + firstLine);
         assertTrue(result.endsWith(LOCKED), "the raw reply stays beneath the note: " + result);
         assertEquals(List.of(BUSY, LOCKED), shell.replies(), "the kept replies carry no note");
-    }
-
-    @Test
-    void saysSoWhenACausedRefusalFollowsNoEarlierCommand() {
-        queue.add(LOCKED);
-
-        String result = (String) causedTool().handler().apply(new ShellTool.Command("cmd-a")).result();
-
-        assertEquals(1, posted.size());
-        String firstLine = result.lines().findFirst().orElseThrow();
-        assertTrue(firstLine.contains("not retried"), firstLine);
-        assertTrue(firstLine.contains("no earlier command"), firstLine);
     }
 
     @Test

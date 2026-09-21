@@ -141,7 +141,8 @@ public class S03E02 {
                             REPEAT_THRESHOLD,
                             MAX_REPLY_CHARS,
                             new Guard.Learning(
-                                    task.ignore().file(), task.ignore().pathKey(), task.ignore().contentKey())),
+                                    task.ignore().file(), task.ignore().pathKey(), task.ignore().contentKey()),
+                            shell.culpritPointer()),
                     RetryPolicy.defaults(),
                     Sleeper.real());
 
