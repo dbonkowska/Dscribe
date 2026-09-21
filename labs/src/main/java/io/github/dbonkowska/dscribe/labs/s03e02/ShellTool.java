@@ -145,44 +145,43 @@ final class ShellTool {
         String before = previous;
         previous = command;
 
-        Optional<String> caused = matching(spec.causedCodes(), body);
-        if (caused.isPresent()) {
-            // Resending would meet the same refusal, so wait once and hand it back.
-            Duration wait = policy.backoffAfter(1).orElse(Duration.ZERO);
-            if (!wait.isZero()) {
-                sleeper.await(wait);
-            }
-            String cause = before == null ? "no earlier command was sent" : "caused by: " + before;
-            return ToolOutput.of("[caused refusal " + caused.get() + " · waited " + show(wait)
-                    + " · not retried · " + cause + "]\n" + shown(body));
-        }
-
         // The number of tries is counted from what was made, never derived from the policy, so the
         // note the model reads is a fact about this command rather than a setting.
         int attempts = 1;
         int retries = 0;
         Duration waited = Duration.ZERO;
-        Optional<String> code = matching(spec.transientCodes(), body);
-        while (code.isPresent()) {
+        while (true) {
+            // Every reply received is classified, the retry's as much as the first: a busy reply is
+            // retried, and the retry can land on a ban.
+            Optional<String> caused = matching(spec.causedCodes(), body);
+            if (caused.isPresent()) {
+                // Resending would meet the same refusal, so wait once and hand it back.
+                Duration wait = policy.backoffAfter(1).orElse(Duration.ZERO);
+                if (!wait.isZero()) {
+                    sleeper.await(wait);
+                }
+                String cause = before == null ? "no earlier command was sent" : "caused by: " + before;
+                return ToolOutput.of("[caused refusal " + caused.get() + " · waited "
+                        + show(waited.plus(wait)) + " · not retried · " + cause + "]\n" + shown(body));
+            }
+
+            Optional<String> code = matching(spec.transientCodes(), body);
+            // A reply that recovered reads as an ordinary one. Only one still refused is annotated, and
+            // only in what the model is shown: replies() keeps the body as the hub sent it.
+            if (code.isEmpty()) {
+                return ToolOutput.of(shown(body));
+            }
             Optional<Duration> backoff = policy.backoffAfter(attempts);
             if (backoff.isEmpty()) {
-                break;
+                return ToolOutput.of("[transient refusal " + code.get() + " · waited " + show(waited)
+                        + " over " + retries + " retries]\n" + shown(body));
             }
             sleeper.await(backoff.get());
             waited = waited.plus(backoff.get());
             attempts++;
             retries++;
             body = post(label + " · retry " + retries, command);
-            code = matching(spec.transientCodes(), body);
         }
-
-        // A reply that recovered reads as an ordinary one. Only one still refused is annotated, and
-        // only in what the model is shown: replies() keeps the body as the hub sent it.
-        if (code.isPresent()) {
-            return ToolOutput.of("[transient refusal " + code.get() + " · waited " + show(waited) + " over "
-                    + retries + " retries]\n" + shown(body));
-        }
-        return ToolOutput.of(shown(body));
     }
 
     /**

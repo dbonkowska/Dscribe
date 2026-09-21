@@ -217,6 +217,28 @@ class ShellToolTest {
         assertEquals(List.of("{\"out\":\"ok\"}", LOCKED), shell.replies(), "the kept replies carry no note");
     }
 
+    /**
+     * A busy reply is retried, and the retry can land on a ban: the sequence the classification exists
+     * for. The refusal is classified on every reply received, not only the first.
+     */
+    @Test
+    void classifiesACausedRefusalThatArrivesOnARetry() {
+        queue.addAll(List.of(BUSY, LOCKED));
+        shell = shell(List.of(), List.of("BUSY"), List.of("LOCKED"), POLICY);
+
+        String result = (String) tool().handler().apply(new ShellTool.Command("cmd-a")).result();
+
+        assertEquals(2, posted.size(), "the caused refusal is not retried");
+        assertEquals(List.of(Duration.ofSeconds(1), Duration.ofSeconds(1)), slept);
+        String firstLine = result.lines().findFirst().orElseThrow();
+        assertTrue(firstLine.contains("caused"), firstLine);
+        assertTrue(firstLine.contains("LOCKED"), firstLine);
+        assertTrue(firstLine.contains("not retried"), firstLine);
+        assertTrue(firstLine.contains("2s"), "the wait includes the one already spent: " + firstLine);
+        assertTrue(result.endsWith(LOCKED), "the raw reply stays beneath the note: " + result);
+        assertEquals(List.of(BUSY, LOCKED), shell.replies(), "the kept replies carry no note");
+    }
+
     @Test
     void saysSoWhenACausedRefusalFollowsNoEarlierCommand() {
         queue.add(LOCKED);
