@@ -169,13 +169,13 @@ public class S03E02 {
             if (flag == null) {
                 throw new IllegalStateException(
                         "No reply matched " + task.flagPattern() + " across " + submit.responses().size()
-                                + " submission(s) and " + shellTool.replies().size()
+                                + " submission(s) and " + shellRequests(shellTool)
                                 + " shell request(s). The run ended without the hub accepting a code.");
             }
 
             System.out.println(flag);
             transcript.outcome("Earned `" + flag + "` across " + submit.responses().size()
-                    + " submission(s) and " + shellTool.replies().size() + " shell request(s).");
+                    + " submission(s) and " + shellRequests(shellTool) + " shell request(s).");
             System.out.println("Transcript: " + transcript.file());
         }
     }
@@ -186,6 +186,11 @@ public class S03E02 {
      *
      * @return the result as the hub wrote it, or null where no reply has carried one yet
      */
+    /** The start-up help call posts to the shell too, but is not one of the tool's replies. */
+    private static int shellRequests(ShellTool shellTool) {
+        return shellTool.replies().size() + 1;
+    }
+
     private static String findFlag(List<String> responses, Pattern flag) {
         for (String response : responses) {
             Matcher matcher = flag.matcher(response);

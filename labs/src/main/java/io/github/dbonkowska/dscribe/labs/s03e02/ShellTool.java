@@ -45,11 +45,11 @@ final class ShellTool {
      * @param forbidden      roots a command must not address
      * @param transientCodes reply fragments meaning "try again shortly"
      * @param causedCodes    reply fragments meaning "a command caused this"
+     * @param repeatThreshold how many times in a row the same command is sent before a repeat is refused.
+     *                        Mechanism rather than task content, so the runner supplies a constant
      * @param maxReplyChars the most of one reply the model is handed. A file can come back as megabytes, which
      *                      would overflow its context; the start and end are kept. Mechanism, not task content
      * @param ignore         how to recognise a reply that lists paths to avoid, so the guard can learn them
-     * @param repeatThreshold how many times in a row the same command is sent before a repeat is refused.
-     *                        Mechanism rather than task content, so the runner supplies a constant
      * @param culpritPointer  a JSON pointer to where a caused refusal names the command it blames, or
      *                        blank when the exercise's replies name none
      */

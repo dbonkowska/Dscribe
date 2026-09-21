@@ -46,7 +46,10 @@ class SubmitToolTest {
     /** With nothing to type, there is nothing for the model to get slightly wrong. */
     @Test
     void takesNothingFromTheModel() {
-        assertEquals(0, tool().spec().function().parameters().path("properties").size());
+        var properties = tool().spec().function().parameters().at("/properties");
+
+        assertTrue(properties.isObject(), "the schema has to declare its properties, empty");
+        assertEquals(0, properties.size());
     }
 
     @Test

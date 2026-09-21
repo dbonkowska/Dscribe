@@ -146,7 +146,7 @@ final class Guard {
         }
 
         List<String> where = segments(path.stringValue(), true);
-        if (where.isEmpty() || !where.getLast().equals(learning.file())) {
+        if (where.isEmpty() || !where.getLast().equalsIgnoreCase(learning.file())) {
             return;
         }
         List<String> dir = List.copyOf(where.subList(0, where.size() - 1));

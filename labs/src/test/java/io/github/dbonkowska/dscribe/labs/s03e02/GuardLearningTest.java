@@ -60,6 +60,14 @@ class GuardLearningTest {
         assertTrue(guard.violated(command).isPresent(), command);
     }
 
+    /** Every other comparison in the guard ignores case, so the file's name must not be the exception. */
+    @Test
+    void learnsFromAFileNamedInAnotherCase() {
+        guard.learn(reply("/srv/app/.IGN", "secret.txt"));
+
+        assertTrue(guard.violated("cat /srv/app/secret.txt").isPresent());
+    }
+
     /** The refusal has to say which path and where the rule came from, so the model can act on it. */
     @Test
     void namesTheResolvedPathAndTheFileItWasListedIn() {
