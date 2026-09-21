@@ -10,9 +10,8 @@ import java.util.regex.PatternSyntaxException;
  * Bound from {@code {labs.lessons.dir}/s03e03/task.properties}.
  *
  * <p>Everything the exercise supplies lives outside the repository. The code knows only that there
- * is an endpoint taking one command from a closed set under some key, a command the runner sends
- * before the model's first turn, and two patterns that end a run: one for the result, one for a
- * failure. The words that fill them are the exercise's.
+ * is an endpoint taking one command from a closed set under some key, and two patterns that end a
+ * run: one for the result, one for a failure. The words that fill them are the exercise's.
  *
  * <p>The list binds by index: {@code commands.1}, {@code commands.2}, and so on.
  *
@@ -22,8 +21,6 @@ import java.util.regex.PatternSyntaxException;
  * @param verifyTask   the task name the hub expects
  * @param commandKey   the key a command is sent under in the answer object. Missing, it would bind
  *                     to null and every command would reach the hub malformed
- * @param resetCommand sent by the runner, once, before the model's first turn. Never offered to the
- *                     model
  * @param flagPattern  a regex matching a reply that carries the result
  * @param crashPattern a regex matching a reply that says the run failed and cannot go on
  * @param commands     the closed set the model may send, which becomes the schema's {@code enum}
@@ -32,7 +29,6 @@ import java.util.regex.PatternSyntaxException;
 public record TaskParams(
         String verifyTask,
         String commandKey,
-        String resetCommand,
         String flagPattern,
         String crashPattern,
         List<String> commands,
@@ -44,7 +40,6 @@ public record TaskParams(
         // command, the patterns after the result was already earned.
         require(verifyTask, "verifyTask");
         require(commandKey, "commandKey");
-        require(resetCommand, "resetCommand");
         require(flagPattern, "flagPattern");
         require(crashPattern, "crashPattern");
         compiles(flagPattern, "flagPattern");
@@ -66,15 +61,6 @@ public record TaskParams(
                         "commands holds a blank entry, which would put an empty string into the"
                                 + " schema's enum. Remove it or fill it in in the lesson's"
                                 + " task.properties.");
-            }
-            // Reserved by name, before anything is built. Whichever way the hub reads the
-            // spelling, the model must not be able to send the reset: a crashed run reset by the
-            // model mid-run loses the state that explains the crash.
-            if (entry.trim().equalsIgnoreCase(resetCommand.trim())) {
-                throw new IllegalStateException(
-                        "commands contains " + entry.trim() + ", which is resetCommand. The runner"
-                                + " sends it once at start-up and never offers it to the model. Remove"
-                                + " it from commands in the lesson's task.properties.");
             }
             if (!seen.add(entry.trim())) {
                 throw new IllegalStateException(

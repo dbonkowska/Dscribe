@@ -27,7 +27,6 @@ class TaskParamsTest {
     private static final String COMPLETE = """
             verifyTask=x-task
             commandKey=cmd
-            resetCommand=reset
             flagPattern=[{]F[}]
             crashPattern=CRASH
             commands.1=go
@@ -43,7 +42,6 @@ class TaskParamsTest {
 
         assertEquals("x-task", params.verifyTask());
         assertEquals("cmd", params.commandKey());
-        assertEquals("reset", params.resetCommand());
         assertEquals("[{]F[}]", params.flagPattern());
         assertEquals("CRASH", params.crashPattern());
         assertEquals(List.of("go", "hold", "back"), params.commands(), "lists bind by index");
@@ -53,7 +51,7 @@ class TaskParamsTest {
 
     @ParameterizedTest
     @ValueSource(strings = {
-            "verifyTask", "commandKey", "resetCommand", "flagPattern", "crashPattern",
+            "verifyTask", "commandKey", "flagPattern", "crashPattern",
             "command.name", "command.description"})
     void refusesARequiredKeyThatWasNeverWritten(String key) {
         String props = COMPLETE.lines()
@@ -72,7 +70,7 @@ class TaskParamsTest {
     /** Present but empty is the same mistake as absent, and has to be refused the same way. */
     @ParameterizedTest
     @ValueSource(strings = {
-            "verifyTask", "commandKey", "resetCommand", "flagPattern", "crashPattern",
+            "verifyTask", "commandKey", "flagPattern", "crashPattern",
             "command.name", "command.description"})
     void refusesARequiredKeyLeftBlank(String key) {
         String props = COMPLETE.lines()
@@ -121,25 +119,6 @@ class TaskParamsTest {
                 () -> new JavaPropsMapper().readValue(props, TaskParams.class));
 
         assertTrue(thrown.getMessage().contains("hold"), thrown::getMessage);
-    }
-
-    /**
-     * The reset is the runner's. Where the model could send it, a run that crashed could be reset by
-     * the model mid-run and the state that explains the crash would be gone.
-     *
-     * <p>Second position, different case, trailing space: a check that reads only the first entry,
-     * or compares exactly, would pass all of these.
-     */
-    @Test
-    void refusesACommandSetTheModelCouldResetFrom() {
-        String props = COMPLETE.replace("commands.2=hold", "commands.2=Reset ");
-
-        RuntimeException thrown = assertThrows(RuntimeException.class,
-                () -> new JavaPropsMapper().readValue(props, TaskParams.class));
-
-        assertTrue(thrown.getMessage().contains("resetCommand"), thrown::getMessage);
-        assertTrue(thrown.getMessage().contains("runner sends"),
-                () -> "it has to say where the reset went instead: " + thrown.getMessage());
     }
 
     /**
