@@ -16,6 +16,7 @@ import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
 import java.util.List;
+import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -307,6 +308,111 @@ class AgentTest {
                 List.of(Role.user, Role.assistant, Role.tool, Role.tool, Role.user),
                 roles(transport.request(1)),
                 "both loops buffer, and a fix applied to only one is the likely mistake");
+    }
+
+    @Test
+    void observedRunReturnsTheValueOfTheFirstAcceptedResult() {
+        ScriptedTransport transport = new ScriptedTransport(
+                toolCalls(call("call_1", "lookup", "{\"query\":\"x\"}")));
+
+        String value = agent(transport, 12).run(SEED, (call, result) -> Optional.of("done"));
+
+        assertEquals("done", value);
+        assertEquals(1, transport.calls(), "no further round-trip is paid once the observer accepts");
+        assertEquals(List.of("x"), dispatched);
+    }
+
+    @Test
+    void observedRunAsksTheObserverAfterEveryResultAndKeepsGoingOnEmpty() {
+        ScriptedTransport transport = new ScriptedTransport(
+                toolCalls(call("call_1", "lookup", "{\"query\":\"a\"}")),
+                toolCalls(call("call_2", "lookup", "{\"query\":\"b\"}")));
+        List<String> seen = new ArrayList<>();
+
+        String value = agent(transport, 12).run(SEED, (call, result) -> {
+            seen.add(call.id() + ":" + result.text());
+            return Optional.of(result.text()).filter("found b"::equals);
+        });
+
+        assertEquals("found b", value);
+        assertEquals(List.of("call_1:found a", "call_2:found b"), seen);
+        assertEquals(2, transport.calls());
+    }
+
+    @Test
+    void observedRunDoesNotDispatchTheCallsLeftInTheAcceptingTurn() {
+        ScriptedTransport transport = new ScriptedTransport(
+                toolCalls(
+                        call("call_1", "lookup", "{\"query\":\"a\"}"),
+                        call("call_2", "lookup", "{\"query\":\"b\"}"),
+                        call("call_3", "lookup", "{\"query\":\"c\"}")));
+
+        agent(transport, 12).run(SEED,
+                (call, result) -> Optional.of(result.text()).filter("found b"::equals));
+
+        assertEquals(List.of("a", "b"), dispatched, "nothing is sent after the run has ended");
+    }
+
+    @Test
+    void observedRunShowsTheObserverAToolFailureAsText() {
+        Tool<Lookup> exploding = new Tool<>("lookup", "finds things", Lookup.class, args -> {
+            throw new RuntimeException("boom");
+        });
+        ScriptedTransport transport = new ScriptedTransport(
+                toolCalls(call("call_1", "lookup", "{\"query\":\"x\"}")));
+        List<String> seen = new ArrayList<>();
+
+        new Agent(transport, new Toolbox(List.of(exploding)), 12).run(SEED, (call, result) -> {
+            seen.add(result.text());
+            return Optional.of("done");
+        });
+
+        assertEquals(1, seen.size());
+        assertTrue(seen.getFirst().startsWith("Tool failed: "), seen::toString);
+    }
+
+    @Test
+    void observedRunNudgesABareTextTurnAndChargesAnIteration() {
+        ScriptedTransport transport = new ScriptedTransport(
+                text("Let me think about this out loud."),
+                toolCalls(call("call_1", "lookup", "{\"query\":\"x\"}")));
+
+        agent(transport, 12).run(SEED, (call, result) -> Optional.of("done"));
+
+        Message nudge = transport.request(1).getLast();
+        assertEquals(Role.user, nudge.role());
+        assertTrue(nudge.text().contains("tool"), () -> "the nudge must point at the tools: " + nudge.text());
+        assertEquals(2, transport.calls());
+    }
+
+    @Test
+    void observedRunGivesUpAtTheCapWhenTheObserverNeverAccepts() {
+        ScriptedTransport transport = new ScriptedTransport(
+                toolCalls(call("call_1", "lookup", "{\"query\":\"a\"}")),
+                toolCalls(call("call_2", "lookup", "{\"query\":\"b\"}")),
+                toolCalls(call("call_3", "lookup", "{\"query\":\"c\"}")));
+
+        AgentLimitException thrown = assertThrows(AgentLimitException.class,
+                () -> agent(transport, 3).run(SEED, (call, result) -> Optional.empty()));
+
+        assertEquals(3, thrown.iterations());
+    }
+
+    @Test
+    void observedRunAppendsAnAttachmentAfterEveryResultOfTheTurn() {
+        ScriptedTransport transport = new ScriptedTransport(
+                toolCalls(
+                        call("call_1", "picture", "{\"url\":\"https://e/x.png\"}"),
+                        call("call_2", "lookup", "{\"query\":\"a\"}")),
+                toolCalls(call("call_3", "lookup", "{\"query\":\"b\"}")));
+
+        agent(transport, 12).run(SEED,
+                (call, result) -> Optional.of(result.text()).filter("found b"::equals));
+
+        assertEquals(
+                List.of(Role.user, Role.assistant, Role.tool, Role.tool, Role.user),
+                roles(transport.request(1)),
+                "the third loop buffers too, and a fix applied to only one loop is the likely mistake");
     }
 
     private static List<Role> roles(List<Message> messages) {

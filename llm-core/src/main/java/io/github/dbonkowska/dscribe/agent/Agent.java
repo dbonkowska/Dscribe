@@ -18,14 +18,16 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * Lets a model drive a multi-step process: it picks a tool, reads the result, and picks again.
  *
- * <p>Two entry points, differing in what ends the run and in what the caller gets back.
+ * <p>Three entry points, differing in what ends the run and in what the caller gets back.
  * {@link #run(List, AnswerTool)} ends when the model calls the answer tool, and hands back what
  * it answered with. {@link #run(List, StopCondition)} ends when a caller-supplied predicate
- * accepts a turn, and hands back the whole conversation.
+ * accepts a turn, and hands back the whole conversation. {@link #run(List, ResultObserver)} ends when a
+ * caller-supplied observer accepts a tool's result, and hands back what it accepted with.
  *
  * <p>The cap counts model round-trips rather than tool calls — a turn with five parallel calls
  * is one iteration. Nothing else ends either loop: a tool failure goes back to the model as text
@@ -71,6 +73,10 @@ public final class Agent {
      * it again, restarting the cap: a model malforming its answer every turn would never reach
      * {@link AgentLimitException}. The cap is what bounds the spend, so two loops is the cheaper
      * trade. Revisit once the course stops handing the loop new shapes (issue #5).
+     *
+     * <p>Revisited in issue #26, when a third shape arrived. What the loops have in common, running
+     * one call and recording it, is shared in {@link #dispatch}; the loops are not, and the reason above
+     * still stands.
      */
     public List<Message> run(List<Message> seed, StopCondition stop) {
         List<ToolSpec> specs = tools.specs();
@@ -94,19 +100,57 @@ public final class Agent {
 
             List<Message> attachments = new ArrayList<>();
             for (ToolCall call : turn.toolCalls()) {
-                // logged before it runs, so a model spinning on identical calls is visible live
-                log.info("{}. {} {}", iteration, call.function().name(), call.function().arguments());
-
-                ToolCallMessages produced = tools.invoke(call);
-
-                log.info("   -> {}", oneLine(produced.result().text()));
-
-                messages.add(produced.result());
-                attachments.addAll(produced.attachments());
+                dispatch(call, iteration, messages, attachments);
             }
             // held back rather than appended where they arose: every tool result of a turn has to
             // sit against the assistant turn that asked for it, and a user message wedged between
             // two of them invalidates the next request
+            messages.addAll(attachments);
+        }
+
+        throw new AgentLimitException(maxIterations, messages);
+    }
+
+    /**
+     * Runs until {@code observer} accepts a tool's result, and returns what it accepted with.
+     *
+     * <p>For a run whose end arrives inside a reply rather than in anything the model says. Closing a
+     * {@link StopCondition} over the tool's recorded replies gets the same value, but pays for it
+     * twice: the condition is only asked on the next assistant turn, so one more model call is bought
+     * after the result is already in hand, and a turn carrying several calls goes on dispatching the
+     * rest of them after it. Here the observer is asked after each result, and the first present
+     * value returns before either happens.
+     *
+     * <p>Calls the accepting turn still owes are dropped, and so is anything they attached. What comes
+     * back is a value rather than a conversation, so an unanswered call has nothing to invalidate.
+     * A turn with no calls is nudged and costs an iteration, as under {@link StopCondition}.
+     */
+    public <T> T run(List<Message> seed, ResultObserver<T> observer) {
+        List<ToolSpec> specs = tools.specs();
+        List<Message> messages = new ArrayList<>(seed);
+
+        for (int iteration = 1; iteration <= maxIterations; iteration++) {
+            Message turn = llm.send(messages, specs, "auto").message();
+            messages.add(turn);
+
+            if (!turn.hasToolCalls()) {
+                // the nudge costs an iteration, so it has to be visible while it happens
+                log.info("{}. no tool calls, nudging: {}", iteration, oneLine(turn.text()));
+                messages.add(new Message(
+                        Role.user, "Keep going by calling one of the tools you were given."));
+                continue;
+            }
+
+            List<Message> attachments = new ArrayList<>();
+            for (ToolCall call : turn.toolCalls()) {
+                Message result = dispatch(call, iteration, messages, attachments);
+
+                Optional<T> ended = observer.observe(call, result);
+                if (ended.isPresent()) {
+                    return ended.get();
+                }
+            }
+            // held back for the same reason as in the other loops
             messages.addAll(attachments);
         }
 
@@ -163,17 +207,7 @@ public final class Agent {
                     continue;
                 }
 
-                // logged before it runs, so a model spinning on identical calls is visible live
-                log.info("{}. {} {}", iteration, call.function().name(), call.function().arguments());
-
-                ToolCallMessages produced = tools.invoke(call);
-
-                // and the result too: without it, a wrong answer gives no way to tell whether the
-                // model reasoned badly or was handed something other than what it expected
-                log.info("   -> {}", oneLine(produced.result().text()));
-
-                messages.add(produced.result());
-                attachments.addAll(produced.attachments());
+                dispatch(call, iteration, messages, attachments);
             }
             // see the other loop: an attachment appended where it arose would split the run of
             // tool results this turn owes
@@ -181,6 +215,29 @@ public final class Agent {
         }
 
         throw new AgentLimitException(maxIterations, messages);
+    }
+
+    /**
+     * Runs one call and records it: the result goes onto the conversation, and anything it attached
+     * into {@code attachments} for the caller to append once the whole turn has been answered.
+     *
+     * <p>The only part the three loops share. Both halves are logged, and the result whole: without
+     * it a wrong answer gives no way to tell whether the model reasoned badly or was handed something
+     * other than what it expected. The call is logged before it runs, so a model spinning on identical
+     * calls is visible live.
+     *
+     * @return the result message, for a caller that has to look at it
+     */
+    private Message dispatch(ToolCall call, int iteration, List<Message> messages, List<Message> attachments) {
+        log.info("{}. {} {}", iteration, call.function().name(), call.function().arguments());
+
+        ToolCallMessages produced = tools.invoke(call);
+
+        log.info("   -> {}", oneLine(produced.result().text()));
+
+        messages.add(produced.result());
+        attachments.addAll(produced.attachments());
+        return produced.result();
     }
 
     /**
