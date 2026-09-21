@@ -398,6 +398,23 @@ class AgentTest {
         assertEquals(3, thrown.iterations());
     }
 
+    @Test
+    void observedRunAppendsAnAttachmentAfterEveryResultOfTheTurn() {
+        ScriptedTransport transport = new ScriptedTransport(
+                toolCalls(
+                        call("call_1", "picture", "{\"url\":\"https://e/x.png\"}"),
+                        call("call_2", "lookup", "{\"query\":\"a\"}")),
+                toolCalls(call("call_3", "lookup", "{\"query\":\"b\"}")));
+
+        agent(transport, 12).run(SEED,
+                (call, result) -> Optional.of(result.text()).filter("found b"::equals));
+
+        assertEquals(
+                List.of(Role.user, Role.assistant, Role.tool, Role.tool, Role.user),
+                roles(transport.request(1)),
+                "the third loop buffers too, and a fix applied to only one loop is the likely mistake");
+    }
+
     private static List<Role> roles(List<Message> messages) {
         return messages.stream().map(Message::role).toList();
     }

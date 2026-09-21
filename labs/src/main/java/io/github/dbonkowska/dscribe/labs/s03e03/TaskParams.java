@@ -69,7 +69,8 @@ public record TaskParams(
                                 + " the lesson's task.properties.");
             }
         }
-        commands = List.copyOf(commands);
+        // stored as compared: an entry the checks above trimmed must not reach the schema padded
+        commands = commands.stream().map(String::trim).toList();
     }
 
     /**

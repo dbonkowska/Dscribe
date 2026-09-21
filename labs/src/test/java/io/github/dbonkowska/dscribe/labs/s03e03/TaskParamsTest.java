@@ -121,6 +121,31 @@ class TaskParamsTest {
         assertTrue(thrown.getMessage().contains("hold"), thrown::getMessage);
     }
 
+    /** The check compares trimmed entries, so a padded duplicate is caught the same way. */
+    @Test
+    void refusesACommandListedTwiceThatDiffersOnlyByWhitespace() {
+        String props = COMPLETE.replace("commands.3=back", "commands.3=hold ");
+
+        RuntimeException thrown = assertThrows(RuntimeException.class,
+                () -> new JavaPropsMapper().readValue(props, TaskParams.class));
+
+        assertTrue(thrown.getMessage().contains("hold"), thrown::getMessage);
+    }
+
+    /**
+     * What is compared is what is stored: an entry the duplicate check trims must not go into the
+     * schema's enum with its padding, or the model is offered, and sends, a command the hub has
+     * never heard of.
+     */
+    @Test
+    void storesTheCommandsTrimmed() {
+        String props = COMPLETE.replace("commands.1=go", "commands.1=go ");
+
+        TaskParams params = new JavaPropsMapper().readValue(props, TaskParams.class);
+
+        assertEquals(List.of("go", "hold", "back"), params.commands());
+    }
+
     /**
      * A pattern that does not compile throws on the first reply it is applied to, after the run has
      * already spent and the environment has printed the result it was meant to find.

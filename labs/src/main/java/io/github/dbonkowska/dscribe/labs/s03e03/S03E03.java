@@ -41,19 +41,23 @@ import java.util.regex.Pattern;
 public class S03E03 {
 
     /**
-     * The lesson's own pin. A wrong command spends one of a limited stock of attempts, and the
-     * reasoning is over state that changes between calls, so the run does not start on a cheaper
-     * tier. Moving up from here is a measurement, not a default.
+     * The tier that earned the flag on its first attempt, every time it was run. Cheaper tiers were
+     * tried and did not, and the comparison, with its costs and attempt counts, is kept with the
+     * lesson's notes rather than here, where it would go stale with the next rung.
+     *
+     * <p>What carries over from it: the price is input tokens, nearly all of it the environment's
+     * reply replayed to the model on every round, so a cheaper rate is not a cheaper flag when each
+     * failed attempt spends one of a limited stock. Each rung is tried by stepping down from a run
+     * that worked, and a run is one attempt, so a model is judged on several of them.
      *
      * <p>A preference, not the last word — {@code -Dopenrouter.model}, {@code OPENROUTER_MODEL} and
-     * {@code openrouter.model} each still win over it.
+     * {@code openrouter.model} each still win over it, so another tier is tried without an edit.
      */
     private static final String MODEL = "anthropic/claude-sonnet-4-6";
 
     /**
-     * Counts model round-trips. A backstop rather than the expected exit: waiting is a command like
-     * any other and takes a round, so a run that has to wait a lot needs room. The observer is what
-     * is meant to end the run, on the result or on a failure.
+     * Counts model round-trips. A backstop rather than the expected exit: a run that has to pause a
+     * lot needs room. The observer is what is meant to end the run, on the result or on a failure.
      */
     private static final int MAX_ITERATIONS = 40;
 
