@@ -73,6 +73,10 @@ public final class Agent {
      * it again, restarting the cap: a model malforming its answer every turn would never reach
      * {@link AgentLimitException}. The cap is what bounds the spend, so two loops is the cheaper
      * trade. Revisit once the course stops handing the loop new shapes (issue #5).
+     *
+     * <p>Revisited in issue #26, when a third shape arrived. What the loops have in common, running
+     * one call and recording it, is shared in {@link #dispatch}; the loops are not, and the reason above
+     * still stands.
      */
     public List<Message> run(List<Message> seed, StopCondition stop) {
         List<ToolSpec> specs = tools.specs();
@@ -96,15 +100,7 @@ public final class Agent {
 
             List<Message> attachments = new ArrayList<>();
             for (ToolCall call : turn.toolCalls()) {
-                // logged before it runs, so a model spinning on identical calls is visible live
-                log.info("{}. {} {}", iteration, call.function().name(), call.function().arguments());
-
-                ToolCallMessages produced = tools.invoke(call);
-
-                log.info("   -> {}", oneLine(produced.result().text()));
-
-                messages.add(produced.result());
-                attachments.addAll(produced.attachments());
+                dispatch(call, iteration, messages, attachments);
             }
             // held back rather than appended where they arose: every tool result of a turn has to
             // sit against the assistant turn that asked for it, and a user message wedged between
@@ -147,17 +143,9 @@ public final class Agent {
 
             List<Message> attachments = new ArrayList<>();
             for (ToolCall call : turn.toolCalls()) {
-                // logged before it runs, so a model spinning on identical calls is visible live
-                log.info("{}. {} {}", iteration, call.function().name(), call.function().arguments());
+                Message result = dispatch(call, iteration, messages, attachments);
 
-                ToolCallMessages produced = tools.invoke(call);
-
-                log.info("   -> {}", oneLine(produced.result().text()));
-
-                messages.add(produced.result());
-                attachments.addAll(produced.attachments());
-
-                Optional<T> ended = observer.observe(call, produced.result());
+                Optional<T> ended = observer.observe(call, result);
                 if (ended.isPresent()) {
                     return ended.get();
                 }
@@ -219,17 +207,7 @@ public final class Agent {
                     continue;
                 }
 
-                // logged before it runs, so a model spinning on identical calls is visible live
-                log.info("{}. {} {}", iteration, call.function().name(), call.function().arguments());
-
-                ToolCallMessages produced = tools.invoke(call);
-
-                // and the result too: without it, a wrong answer gives no way to tell whether the
-                // model reasoned badly or was handed something other than what it expected
-                log.info("   -> {}", oneLine(produced.result().text()));
-
-                messages.add(produced.result());
-                attachments.addAll(produced.attachments());
+                dispatch(call, iteration, messages, attachments);
             }
             // see the other loop: an attachment appended where it arose would split the run of
             // tool results this turn owes
@@ -237,6 +215,29 @@ public final class Agent {
         }
 
         throw new AgentLimitException(maxIterations, messages);
+    }
+
+    /**
+     * Runs one call and records it: the result goes onto the conversation, and anything it attached
+     * into {@code attachments} for the caller to append once the whole turn has been answered.
+     *
+     * <p>The only part the three loops share. Both halves are logged, and the result whole: without
+     * it a wrong answer gives no way to tell whether the model reasoned badly or was handed something
+     * other than what it expected. The call is logged before it runs, so a model spinning on identical
+     * calls is visible live.
+     *
+     * @return the result message, for a caller that has to look at it
+     */
+    private Message dispatch(ToolCall call, int iteration, List<Message> messages, List<Message> attachments) {
+        log.info("{}. {} {}", iteration, call.function().name(), call.function().arguments());
+
+        ToolCallMessages produced = tools.invoke(call);
+
+        log.info("   -> {}", oneLine(produced.result().text()));
+
+        messages.add(produced.result());
+        attachments.addAll(produced.attachments());
+        return produced.result();
     }
 
     /**
