@@ -9,6 +9,7 @@ import java.util.List;
 import java.util.stream.Collectors;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -163,9 +164,12 @@ class TaskParamsTest {
 
     /** Optional: a file without it is the same lesson with a plainer note, not a broken one. */
     @Test
-    void bindsWithoutAPointerToTheCulpritAndWithOne() {
-        assertTrue(new JavaPropsMapper().readValue(COMPLETE, TaskParams.class).shell().culpritPointer() == null);
+    void bindsWithoutAPointerToTheCulprit() {
+        assertNull(new JavaPropsMapper().readValue(COMPLETE, TaskParams.class).shell().culpritPointer());
+    }
 
+    @Test
+    void bindsAPointerToTheCulprit() {
         String props = COMPLETE.replace("shell.helpCommand=help", "shell.helpCommand=help\nshell.culpritPointer=/a/b");
 
         assertEquals("/a/b", new JavaPropsMapper().readValue(props, TaskParams.class).shell().culpritPointer());
@@ -174,7 +178,7 @@ class TaskParamsTest {
     /** A pointer that names no field is read as "nothing found" on every reply, and nothing says so. */
     @Test
     void refusesAPointerThatIsNotAJsonPointer() {
-        String props = COMPLETE.replace("shell.helpCommand=help", "shell.helpCommand=help\nshell.culpritPointer=ban.command");
+        String props = COMPLETE.replace("shell.helpCommand=help", "shell.helpCommand=help\nshell.culpritPointer=culprit.cmd");
 
         RuntimeException thrown = assertThrows(RuntimeException.class,
                 () -> new JavaPropsMapper().readValue(props, TaskParams.class));

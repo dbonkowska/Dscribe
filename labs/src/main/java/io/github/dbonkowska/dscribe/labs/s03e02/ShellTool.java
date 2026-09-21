@@ -198,13 +198,18 @@ final class ShellTool {
             try {
                 JsonNode named = MAPPER.readTree(body).at(pointer);
                 if (named.isString() && !named.asString().isBlank()) {
-                    return "caused by: " + named.asString();
+                    return "caused by: " + oneLine(named.asString());
                 }
             } catch (JacksonException e) {
                 // not JSON, so it names nothing
             }
         }
-        return "refused: " + command;
+        return "refused: " + oneLine(command);
+    }
+
+    /** The note is a single line above the reply, so whatever it quotes cannot break it in two. */
+    private static String oneLine(String text) {
+        return text.replaceAll("\\R", " ");
     }
 
     /**

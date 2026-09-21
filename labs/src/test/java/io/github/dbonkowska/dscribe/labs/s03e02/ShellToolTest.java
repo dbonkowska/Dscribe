@@ -208,8 +208,8 @@ class ShellToolTest {
      */
     @Test
     void waitsOutACausedRefusalWithoutRetryingAndNamesTheCommandTheReplyNames() {
-        culpritPointer = "/ban/command";
-        String banned = "{\"code\":\"LOCKED\",\"ban\":{\"command\":\"cmd-x\"}}";
+        culpritPointer = "/culprit/cmd";
+        String banned = "{\"code\":\"LOCKED\",\"culprit\":{\"cmd\":\"cmd-x\"}}";
         queue.addAll(List.of("{\"out\":\"ok\"}", banned));
         Tool<ShellTool.Command> tool = causedTool();
         tool.handler().apply(new ShellTool.Command("cmd-a"));
@@ -232,9 +232,9 @@ class ShellToolTest {
      * it does not claim that command, or any other, was the cause.
      */
     @ParameterizedTest
-    @ValueSource(strings = {"{\"code\":\"LOCKED\"}", "{\"code\":\"LOCKED\",\"ban\":{}}", "LOCKED, not json"})
+    @ValueSource(strings = {"{\"code\":\"LOCKED\"}", "{\"code\":\"LOCKED\",\"culprit\":{}}", "LOCKED, not json"})
     void saysWhichCommandWasRefusedWhenTheReplyNamesNoCulprit(String reply) {
-        culpritPointer = "/ban/command";
+        culpritPointer = "/culprit/cmd";
         queue.addAll(List.of("{\"out\":\"ok\"}", reply));
         Tool<ShellTool.Command> tool = causedTool();
         tool.handler().apply(new ShellTool.Command("cmd-a"));
@@ -247,9 +247,22 @@ class ShellToolTest {
         assertFalse(firstLine.contains("caused by"), "nothing is claimed about the cause: " + firstLine);
     }
 
+    /** The note is one line, whatever it quotes: a command with a line break must not split it. */
+    @Test
+    void keepsTheNoteOnOneLineWhenTheCommandItQuotesHasLineBreaks() {
+        culpritPointer = "/culprit/cmd";
+        queue.add("{\"code\":\"LOCKED\",\"culprit\":{\"cmd\":\"cmd-x\\ncmd-y\"}}");
+
+        String result = (String) causedTool().handler().apply(new ShellTool.Command("cmd-a\ncmd-b")).result();
+
+        String note = result.lines().findFirst().orElseThrow();
+        assertTrue(note.endsWith("]"), "the note has to close on its own line: " + note);
+        assertTrue(note.contains("cmd-x cmd-y"), note);
+    }
+
     @Test
     void asksNothingOfTheReplyWhenNoPointerIsConfigured() {
-        queue.add("{\"code\":\"LOCKED\",\"ban\":{\"command\":\"cmd-x\"}}");
+        queue.add("{\"code\":\"LOCKED\",\"culprit\":{\"cmd\":\"cmd-x\"}}");
 
         String firstLine = ((String) causedTool().handler().apply(new ShellTool.Command("cmd-a")).result())
                 .lines().findFirst().orElseThrow();

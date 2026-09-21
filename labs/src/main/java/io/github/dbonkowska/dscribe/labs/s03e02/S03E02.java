@@ -180,17 +180,17 @@ public class S03E02 {
         }
     }
 
+    /** The start-up help call posts to the shell too, but is not one of the tool's replies. */
+    private static int shellRequests(ShellTool shellTool) {
+        return shellTool.replies().size() + 1;
+    }
+
     /**
      * The result is taken from what the hub returned, never from what the model says about it: a run
      * that never saw the result in a reply has not earned it.
      *
      * @return the result as the hub wrote it, or null where no reply has carried one yet
      */
-    /** The start-up help call posts to the shell too, but is not one of the tool's replies. */
-    private static int shellRequests(ShellTool shellTool) {
-        return shellTool.replies().size() + 1;
-    }
-
     private static String findFlag(List<String> responses, Pattern flag) {
         for (String response : responses) {
             Matcher matcher = flag.matcher(response);
