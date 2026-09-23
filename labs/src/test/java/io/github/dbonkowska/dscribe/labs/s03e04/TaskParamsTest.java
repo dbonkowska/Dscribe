@@ -30,6 +30,7 @@ class TaskParamsTest {
             connectionsFile=connections.csv
             replyMinBytes=4
             replyMaxBytes=500
+            flagPattern=[{]F[}]
             """;
 
     @Test
@@ -45,12 +46,14 @@ class TaskParamsTest {
         assertEquals("connections.csv", params.connectionsFile());
         assertEquals(4, params.replyMinBytes());
         assertEquals(500, params.replyMaxBytes());
+        assertEquals("[{]F[}]", params.flagPattern());
     }
 
     @ParameterizedTest
     @ValueSource(strings = {
             "verifyTask", "toolPath", "tool.name", "tool.description",
-            "citiesFile", "itemsFile", "connectionsFile"})
+            "citiesFile", "itemsFile", "connectionsFile", "flagPattern",
+            "replyMinBytes", "replyMaxBytes"})
     void refusesARequiredKeyThatWasNeverWritten(String key) {
         String props = COMPLETE.lines()
                 .filter(line -> !line.startsWith(key + "="))
@@ -65,11 +68,19 @@ class TaskParamsTest {
                 () -> "it has to name the key to edit: " + thrown.getMessage());
     }
 
-    /** Present but empty is the same mistake as absent, and has to be refused the same way. */
+    /**
+     * Present but empty is the same mistake as absent, and has to be refused the same way.
+     *
+     * <p>{@code replyMinBytes} is left out on purpose. Jackson binds an empty number to 0, and 0 is
+     * a legal floor, so a blank floor cannot be told from a deliberate one without changing the
+     * mapper every lesson shares. It is harmless, since it only means no floor. A blank ceiling
+     * binds to 0 as well and is refused, because a ceiling below 1 fits no reply.
+     */
     @ParameterizedTest
     @ValueSource(strings = {
             "verifyTask", "toolPath", "tool.name", "tool.description",
-            "citiesFile", "itemsFile", "connectionsFile"})
+            "citiesFile", "itemsFile", "connectionsFile", "flagPattern",
+            "replyMaxBytes"})
     void refusesARequiredKeyLeftBlank(String key) {
         String props = COMPLETE.lines()
                 .map(line -> line.startsWith(key + "=") ? key + "=   " : line)
@@ -93,5 +104,52 @@ class TaskParamsTest {
 
         assertTrue(thrown.getMessage().contains("500"), thrown::getMessage);
         assertTrue(thrown.getMessage().contains("4"), thrown::getMessage);
+    }
+
+    /** A primitive bound a missing key to 0, and a zero ceiling refuses every reply. */
+    @Test
+    void refusesACeilingBelowOne() {
+        String props = COMPLETE.replace("replyMaxBytes=500", "replyMaxBytes=0");
+
+        RuntimeException thrown = assertThrows(RuntimeException.class,
+                () -> new JavaPropsMapper().readValue(props, TaskParams.class));
+
+        assertTrue(thrown.getMessage().contains("replyMaxBytes"), thrown::getMessage);
+    }
+
+    @Test
+    void refusesANegativeFloor() {
+        String props = COMPLETE.replace("replyMinBytes=4", "replyMinBytes=-1");
+
+        RuntimeException thrown = assertThrows(RuntimeException.class,
+                () -> new JavaPropsMapper().readValue(props, TaskParams.class));
+
+        assertTrue(thrown.getMessage().contains("replyMinBytes"), thrown::getMessage);
+    }
+
+    /**
+     * The fixed replies — nothing matched, too many to list, the lookup failed — have to fit the
+     * range too. A range that cannot hold them is refusable before any request arrives, where
+     * the alternative is a reply the exercise rejects at the worst moment.
+     */
+    @Test
+    void refusesARangeThatCannotHoldTheFixedReplies() {
+        String props = COMPLETE.replace("replyMaxBytes=500", "replyMaxBytes=10");
+
+        RuntimeException thrown = assertThrows(RuntimeException.class,
+                () -> new JavaPropsMapper().readValue(props, TaskParams.class));
+
+        assertTrue(thrown.getMessage().contains("replyMaxBytes"), thrown::getMessage);
+        assertTrue(thrown.getMessage().contains("fixed"), thrown::getMessage);
+    }
+
+    @Test
+    void refusesAFlagPatternThatDoesNotCompile() {
+        String props = COMPLETE.replace("flagPattern=[{]F[}]", "flagPattern=[a-z");
+
+        RuntimeException thrown = assertThrows(RuntimeException.class,
+                () -> new JavaPropsMapper().readValue(props, TaskParams.class));
+
+        assertTrue(thrown.getMessage().contains("flagPattern"), thrown::getMessage);
     }
 }

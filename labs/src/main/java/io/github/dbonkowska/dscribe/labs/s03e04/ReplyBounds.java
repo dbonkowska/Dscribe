@@ -5,9 +5,9 @@ import java.nio.charset.StandardCharsets;
 /**
  * Enforces the exercise's byte range on a reply, measured on the wire rather than in characters.
  *
- * <p>Counting {@code String.length()} would pass an accented reply that overshoots the real byte
- * count the exercise checks, and this lesson's own replies are Polish city names — the case this
- * class exists to get right rather than the edge case that slips through.
+ * <p>Counting {@code String.length()} would pass a reply with any non-ASCII character in it that
+ * overshoots the real byte count the exercise checks. Those are not an edge case to be handled
+ * after the ASCII one works — they are what this class exists to get right.
  */
 final class ReplyBounds {
 

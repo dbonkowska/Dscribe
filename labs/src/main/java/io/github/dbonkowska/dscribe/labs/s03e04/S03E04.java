@@ -30,16 +30,22 @@ import java.time.Duration;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.regex.Pattern;
 
 /**
- * A tool endpoint the hub's own agent calls, not the project's {@link io.github.dbonkowska.dscribe.agent.Agent}.
- * One tool, resolving a free-text description of an item to the cities that sell it — the hub's
- * agent calls it once per item and works out for itself which city carries all of them.
+ * A tool endpoint an external agent calls with a single free-text parameter, and a reply that has
+ * to fit a fixed byte range.
  *
- * <p>No agent loop here: the caller is the one iterating, so a request is answered with a single
+ * <p>No agent loop here: the caller is the one iterating, so a request is answered with one
  * structured-output call to resolve the query, then a plain code join and a bounded reply. See
  * {@link ItemLookup} for that whole per-request decision, and {@link ToolReply}/
- * {@link ReplyBounds} for what keeps a reply inside the exercise's byte range.
+ * {@link ReplyBounds} for what keeps a reply inside the range.
+ *
+ * <p>The transcript lives as long as the server does. The caller can go on calling after the
+ * result has been read, and a record that closed at the result would stop while the run went on
+ * being spent.
  */
 public class S03E04 {
 
@@ -65,29 +71,32 @@ public class S03E04 {
 
     private static final int PORT = 8080;
 
-    /** How many times to poll before giving up and pointing at the hub's own debug panel. */
+    /** How many times to check before giving up and pointing at the hub's own debug panel. */
     private static final int CHECK_ATTEMPTS = 12;
 
     /** The lesson says results take 30-60 seconds; twelve checks ten seconds apart covers that
-     *  with room to spare, without polling so often the hub sees it as abuse. */
+     *  with room to spare, without checking so often the hub sees it as abuse. */
     private static final Duration CHECK_INTERVAL = Duration.ofSeconds(10);
 
     /**
      * The resolver's structured answer: zero or more item codes the query plausibly describes.
      *
-     * <p>Component order is schema order, and schema order is the order a strict structured
-     * answer is generated in — {@code reasoning} comes first so it is worked out before the
-     * codes it justifies, not written after them as a rationalisation. Nothing reads it back; it
-     * exists to be produced, and to explain a broad or surprising match in the transcript.
+     * <p>{@code reasoning} is here to be read in the transcript, not by the code. The schema
+     * generator orders properties by name, so it is written after the codes rather than before,
+     * which makes it an account of the answer and not the working that produced it.
      */
     record ItemCodes(String reasoning, List<String> codes) {}
 
-    public static void main(String[] args) throws IOException {
+    /** One response, as it will be sent and as it will be recorded. */
+    private record Reply(int status, String contentType, String body) {}
+
+    public static void main(String[] args) throws IOException, InterruptedException {
         LabsConfig labsConfig = LabsConfig.load();
         LlmClient llm = new LlmClient(labsConfig.llm()).defaultModel(MODEL);
 
         Lesson lesson = Lesson.of(labsConfig, "s03e04");
         TaskParams task = lesson.task(TaskParams.class);
+        Pattern resultPattern = Pattern.compile(task.flagPattern());
 
         // changes on every tunnel reconnect, so there is no default to fall back to — unlike the
         // model, this is not a preference to override, it is a fact about this run that has to be
@@ -116,7 +125,10 @@ public class S03E04 {
             String connectionsCsv = lesson.prompt(task.connectionsFile());
             Catalog catalog = Catalog.of(citiesCsv, itemsCsv, connectionsCsv);
 
-            ItemLookup.Resolver resolver = resolver(recorded, itemsCsv, lesson.prompt("system.md"));
+            // rendered here, before the server exists: a prompt with no slot for the catalog is
+            // refused now rather than resolving every query against nothing
+            String system = CatalogPrompt.render(lesson.prompt("system.md"), itemsCsv);
+            ItemLookup.Resolver resolver = resolver(recorded, system);
 
             HttpServer server = HttpServer.create(new InetSocketAddress(PORT), 0);
             server.createContext(task.toolPath(),
@@ -126,9 +138,15 @@ public class S03E04 {
             // time, which is what makes a single shared RunTranscript safe to write to here
             server.start();
 
+            AtomicReference<String> result = new AtomicReference<>("the check had not finished");
+
+            // Ctrl-C is how this run ends, and it does not unwind main — so the outcome and the
+            // usage table are written here, once the server has stopped taking calls. close() is
+            // idempotent, so the try-with-resources reaching it on a startup failure is harmless.
             Runtime.getRuntime().addShutdownHook(new Thread(() -> {
                 server.stop(0);
-                transcript.outcome("Server stopped.");
+                transcript.outcome("Server stopped. The check said: " + result.get());
+                transcript.close();
             }));
 
             System.out.println("Model: " + llm.model());
@@ -141,9 +159,39 @@ public class S03E04 {
                             toolRegistration(tunnelUrl + task.toolPath(), task.tool().description()))));
             System.out.println("Registration: " + registered.status() + " " + registered.body());
 
-            String outcome = pollForResult(hub, task.verifyTask());
-            System.out.println(outcome);
-            transcript.outcome(outcome);
+            Optional<String> flag = new ResultPoll(
+                    () -> check(hub, task.verifyTask()),
+                    resultPattern, Sleeper.real(), CHECK_ATTEMPTS, CHECK_INTERVAL).run();
+
+            String found = flag
+                    .map(text -> "Earned `" + text + "`.")
+                    .orElse("No result after " + CHECK_ATTEMPTS + " checks, "
+                            + CHECK_INTERVAL.toSeconds() + "s apart. Check "
+                            + labsConfig.hub().baseUrl() + "/debug by hand.");
+            System.out.println(found);
+            transcript.note("result", found);
+            result.set(found);
+
+            // the caller may still be calling, and the transcript's scope is the server's life,
+            // so main has to outlive the poll
+            System.out.println("Still serving. Ctrl-C to stop.");
+            Thread.currentThread().join();
+        }
+    }
+
+    /**
+     * One check. A check that fails is a check that found nothing: an exception here would end
+     * {@code main} while the server's dispatcher thread kept the process alive with no one
+     * watching it.
+     */
+    private static String check(HubClient hub, String verifyTask) {
+        try {
+            HubResponse response = hub.send("check", verifyTask, Map.of("action", "check"));
+            System.out.println("Check: " + response.status() + " " + response.body());
+            return response.body();
+        } catch (RuntimeException e) {
+            log.warn("Check failed: {}", e.toString());
+            return e.toString();
         }
     }
 
@@ -163,88 +211,109 @@ public class S03E04 {
     }
 
     /**
-     * One turn: whatever the hub's agent sent, answered without any memory of an earlier request.
+     * One turn: whatever the caller sent, answered without any memory of an earlier request.
      *
-     * <p>A blank {@code params} gets the no-match reply rather than a 400 — the exercise says the
-     * calling agent stops if it gets no reply at all, and a blank argument is not the same mistake
-     * as a body that is not JSON. Nothing here may end the process; a malformed request comes back
-     * as 400 or 405 and the server keeps listening.
+     * <p>Every branch is recorded, and recorded before the reply is sent — a malformed call is the
+     * exchange most worth reading, and a client that hangs up mid-response must not take the
+     * record with it.
+     *
+     * <p>A blank {@code params} gets the no-match reply rather than a 400: the caller stops if it
+     * gets no reply at all, and a blank argument is not the same mistake as a body that is not
+     * JSON. Nothing here may end the process; a malformed request comes back as 400 or 405 and the
+     * server keeps listening.
      */
     private static void handle(
             HttpExchange exchange, Catalog catalog, ItemLookup.Resolver resolver,
             TaskParams task, RunTranscript transcript) throws IOException {
 
+        String label = "tool · " + task.tool().name();
+
         if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
             exchange.getResponseHeaders().set("Allow", "POST");
-            respondPlain(exchange, 405, "POST a JSON object with a \"params\" field to this endpoint.");
+            Reply reply = plain(405, "POST a JSON object with a \"params\" field to this endpoint.");
+            record(transcript, label, "(" + exchange.getRequestMethod() + ", body not read)", reply, "");
+            send(exchange, reply);
             return;
         }
 
-        String rawRequest;
+        String rawRequest = "";
         JsonNode request;
         try (InputStream body = exchange.getRequestBody()) {
             rawRequest = new String(body.readAllBytes(), StandardCharsets.UTF_8);
             request = MAPPER.readTree(rawRequest);
         } catch (RuntimeException e) {
             log.warn("Malformed request body: {}", e.toString());
-            respondPlain(exchange, 400, "Malformed request body.");
+            Reply reply = plain(400, "Malformed request body.");
+            record(transcript, label, rawRequest, reply, "not JSON: " + e);
+            send(exchange, reply);
             return;
         }
 
         if (!request.isObject()) {
-            respondPlain(exchange, 400, "Expected a JSON object with a \"params\" field.");
+            Reply reply = plain(400, "Expected a JSON object with a \"params\" field.");
+            record(transcript, label, rawRequest, reply, "not a JSON object");
+            send(exchange, reply);
             return;
         }
 
         String query = request.path("params").asString("");
 
         String output;
+        String extra = "";
         try {
-            output = query.isBlank()
-                    ? ToolReply.NO_MATCH
-                    : ItemLookup.answer(
-                            query, catalog, resolver, task.replyMinBytes(), task.replyMaxBytes());
+            if (query.isBlank()) {
+                output = ToolReply.NO_MATCH;
+            } else {
+                ItemLookup.Answer answer = ItemLookup.answer(
+                        query, catalog, resolver, task.replyMinBytes(), task.replyMaxBytes());
+                output = answer.reply();
+                if (!answer.unknownCodes().isEmpty()) {
+                    extra = "dropped codes the catalog does not know: " + answer.unknownCodes();
+                }
+            }
         } catch (RuntimeException e) {
-            // a resolution failure still gets a reply the agent can read and act on, rather than
-            // ending its run on nothing at all
+            // a failed lookup is not a wording problem, so it does not get the no-match reply:
+            // told to rephrase, the caller would rewrite a query that only needed sending again
             log.warn("Resolution failed for query '{}'", query, e);
-            output = ToolReply.NO_MATCH;
+            output = ToolReply.LOOKUP_FAILED;
+            extra = "lookup failed: " + e;
         }
 
-        String responseJson = respondJson(exchange, 200, output);
-        transcript.note("tool · " + task.tool().name(),
-                "request:\n```json\n" + rawRequest.strip() + "\n```\n\n"
-                        + "response:\n```json\n" + responseJson.strip() + "\n```");
+        Reply reply = new Reply(200, "application/json; charset=utf-8",
+                MAPPER.writeValueAsString(Map.of("output", output)));
+        record(transcript, label, rawRequest, reply, extra);
+        send(exchange, reply);
     }
 
-    private static void respondPlain(HttpExchange exchange, int status, String message) throws IOException {
-        byte[] body = message.getBytes(StandardCharsets.UTF_8);
-        exchange.getResponseHeaders().set("Content-Type", "text/plain; charset=utf-8");
-        exchange.sendResponseHeaders(status, body.length);
+    private static Reply plain(int status, String message) {
+        return new Reply(status, "text/plain; charset=utf-8", message);
+    }
+
+    private static void record(
+            RunTranscript transcript, String label, String request, Reply reply, String extra) {
+
+        transcript.note(label,
+                "request:\n```\n" + request.strip() + "\n```\n\n"
+                        + "response · " + reply.status() + ":\n```\n" + reply.body().strip() + "\n```"
+                        + (extra.isEmpty() ? "" : "\n\n" + extra));
+    }
+
+    private static void send(HttpExchange exchange, Reply reply) throws IOException {
+        byte[] body = reply.body().getBytes(StandardCharsets.UTF_8);
+        exchange.getResponseHeaders().set("Content-Type", reply.contentType());
+        exchange.sendResponseHeaders(reply.status(), body.length);
         try (OutputStream out = exchange.getResponseBody()) {
             out.write(body);
         }
-    }
-
-    private static String respondJson(HttpExchange exchange, int status, String output) throws IOException {
-        String json = MAPPER.writeValueAsString(Map.of("output", output));
-        byte[] body = json.getBytes(StandardCharsets.UTF_8);
-        exchange.getResponseHeaders().set("Content-Type", "application/json; charset=utf-8");
-        exchange.sendResponseHeaders(status, body.length);
-        try (OutputStream out = exchange.getResponseBody()) {
-            out.write(body);
-        }
-        return json;
     }
 
     /**
-     * One structured-output call resolves the query against the item catalog. The catalog text is
-     * folded into the system prompt once, at construction — not re-sent as a separate message per
-     * call, which would cost the same tokens for no benefit.
+     * One structured-output call resolves the query against the catalog. The catalog is already in
+     * the system prompt, rendered once at startup, so a call sends it and the query and nothing
+     * else.
      */
-    private static ItemLookup.Resolver resolver(LlmClient llm, String itemsCatalogText, String systemTemplate) {
+    private static ItemLookup.Resolver resolver(LlmClient llm, String system) {
         ObjectNode schema = SchemaUtils.from(ItemCodes.class);
-        String system = systemTemplate.formatted(itemsCatalogText);
 
         return query -> {
             List<Message> messages = List.of(
@@ -263,29 +332,5 @@ public class S03E04 {
         node.put("URL", url);
         node.put("description", description);
         return node;
-    }
-
-    /**
-     * Waits {@link #CHECK_INTERVAL} between attempts via {@link Sleeper#real()} — the same
-     * interruptible wait {@code ResilientHub} uses, so a Ctrl-C during a long poll behaves the
-     * same way here as it does everywhere else in this module.
-     */
-    private static String pollForResult(HubClient hub, String verifyTask) {
-        Sleeper sleeper = Sleeper.real();
-        Map<String, String> check = Map.of("action", "check");
-
-        for (int attempt = 1; attempt <= CHECK_ATTEMPTS; attempt++) {
-            sleeper.await(CHECK_INTERVAL);
-
-            HubResponse response = hub.send("check", verifyTask, check);
-            if (response.status() == 200) {
-                return response.body();
-            }
-            System.out.println("Check " + attempt + "/" + CHECK_ATTEMPTS + ": "
-                    + response.status() + " " + response.body());
-        }
-
-        return "No result after " + CHECK_ATTEMPTS + " checks, " + CHECK_INTERVAL.toSeconds()
-                + "s apart. Check https://hub.ag3nts.org/debug by hand.";
     }
 }

@@ -44,9 +44,22 @@ class ReplyBoundsTest {
         assertTrue(thrown.getMessage().contains("500"), thrown::getMessage);
     }
 
-    /** 4 characters, but each of {@code ł}, {@code ó}, {@code ź} is 2 bytes in UTF-8 — 7 bytes total. */
+    /**
+     * 4 characters, but each of {@code ł}, {@code ó}, {@code ź} is 2 bytes in UTF-8 — 7 bytes. The
+     * bounds are chosen so the two counts land on opposite sides of them: with a range like
+     * {@code [4, 500]} both counts sit inside it, and an implementation using
+     * {@code String.length()} would pass unchanged.
+     */
     @Test
-    void countsUtf8BytesRatherThanCharacters() {
-        assertDoesNotThrow(() -> ReplyBounds.require("łódź", 4, 500));
+    void acceptsTextWhoseByteCountClearsAFloorItsCharacterCountDoesNot() {
+        assertDoesNotThrow(() -> ReplyBounds.require("łódź", 5, 500));
+    }
+
+    @Test
+    void refusesTextWhoseByteCountBreaksACeilingItsCharacterCountKeeps() {
+        IllegalArgumentException thrown = assertThrows(
+                IllegalArgumentException.class, () -> ReplyBounds.require("łódź", 4, 6));
+
+        assertTrue(thrown.getMessage().contains("7"), thrown::getMessage);
     }
 }
