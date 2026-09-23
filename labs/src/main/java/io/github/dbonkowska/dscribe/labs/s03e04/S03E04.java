@@ -141,41 +141,58 @@ public class S03E04 {
             AtomicReference<String> result = new AtomicReference<>("the check had not finished");
 
             // Ctrl-C is how this run ends, and it does not unwind main — so the outcome and the
-            // usage table are written here, once the server has stopped taking calls. close() is
-            // idempotent, so the try-with-resources reaching it on a startup failure is harmless.
-            Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+            // usage table are written here, once the server has stopped taking calls.
+            //
+            // The transcript must be closed by exactly one of this hook and the try-with-resources
+            // below, never both: close() writes its usage table on every call, so a second one
+            // would print the spend twice. The catch further down removes this hook when main
+            // fails first.
+            Thread onShutdown = new Thread(() -> {
                 server.stop(0);
                 transcript.outcome("Server stopped. The check said: " + result.get());
                 transcript.close();
-            }));
+            });
+            Runtime.getRuntime().addShutdownHook(onShutdown);
 
-            System.out.println("Model: " + llm.model());
-            System.out.println("Listening on http://localhost:" + PORT + task.toolPath());
-            System.out.println("Public tool URL: " + tunnelUrl + task.toolPath());
-            System.out.println("Transcript: " + transcript.file());
+            try {
+                System.out.println("Model: " + llm.model());
+                System.out.println("Listening on http://localhost:" + PORT + task.toolPath());
+                System.out.println("Public tool URL: " + tunnelUrl + task.toolPath());
+                System.out.println("Transcript: " + transcript.file());
 
-            HubResponse registered = hub.send("register", task.verifyTask(),
-                    Map.of("tools", List.of(
-                            toolRegistration(tunnelUrl + task.toolPath(), task.tool().description()))));
-            System.out.println("Registration: " + registered.status() + " " + registered.body());
+                HubResponse registered = hub.send("register", task.verifyTask(),
+                        Map.of("tools", List.of(
+                                toolRegistration(tunnelUrl + task.toolPath(), task.tool().description()))));
+                System.out.println("Registration: " + registered.status() + " " + registered.body());
 
-            Optional<String> flag = new ResultPoll(
-                    () -> check(hub, task.verifyTask()),
-                    resultPattern, Sleeper.real(), CHECK_ATTEMPTS, CHECK_INTERVAL).run();
+                Optional<String> flag = new ResultPoll(
+                        () -> check(hub, task.verifyTask()),
+                        resultPattern, Sleeper.real(), CHECK_ATTEMPTS, CHECK_INTERVAL).run();
 
-            String found = flag
-                    .map(text -> "Earned `" + text + "`.")
-                    .orElse("No result after " + CHECK_ATTEMPTS + " checks, "
-                            + CHECK_INTERVAL.toSeconds() + "s apart. Check "
-                            + labsConfig.hub().baseUrl() + "/debug by hand.");
-            System.out.println(found);
-            transcript.note("result", found);
-            result.set(found);
+                String found = flag
+                        .map(text -> "Earned `" + text + "`.")
+                        .orElse("No result after " + CHECK_ATTEMPTS + " checks, "
+                                + CHECK_INTERVAL.toSeconds() + "s apart. Check "
+                                + labsConfig.hub().baseUrl() + "/debug by hand.");
+                System.out.println(found);
+                transcript.note("result", found);
+                result.set(found);
 
-            // the caller may still be calling, and the transcript's scope is the server's life,
-            // so main has to outlive the poll
-            System.out.println("Still serving. Ctrl-C to stop.");
-            Thread.currentThread().join();
+                // the caller may still be calling, and the transcript's scope is the server's
+                // life, so main has to outlive the poll
+                System.out.println("Still serving. Ctrl-C to stop.");
+                Thread.currentThread().join();
+            } catch (RuntimeException | InterruptedException e) {
+                // the dispatcher thread is not a daemon: left running, it keeps the JVM alive
+                // after main has failed, with nothing left to drive it and nobody watching
+                try {
+                    Runtime.getRuntime().removeShutdownHook(onShutdown);
+                } catch (IllegalStateException alreadyShuttingDown) {
+                    // the hook is already running and will close the transcript itself
+                }
+                server.stop(0);
+                throw e;
+            }
         }
     }
 
