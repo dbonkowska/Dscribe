@@ -2,8 +2,9 @@ package io.github.dbonkowska.dscribe.labs.s04e01;
 
 import java.net.URI;
 import java.util.Collections;
-import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.TreeMap;
 import java.util.regex.Pattern;
 import java.util.regex.PatternSyntaxException;
 
@@ -15,8 +16,8 @@ import java.util.regex.PatternSyntaxException;
  * actions exist is not here at all: the endpoint describes itself, and the model learns it from
  * that reply.
  *
- * <p>The panel's pages bind by name: {@code pages.front=/}, {@code pages.notes=/notes}. The order
- * of the file is the order the read tool offers them in.
+ * <p>The panel's pages bind by name: {@code pages.front=/}, {@code pages.notes=/notes}. The read tool
+ * offers them sorted by name; the file's order is not kept, because the binder does not keep it.
  *
  * @param verifyTask   the task name the hub expects
  * @param flagPattern  a regex matching a reply that carries the result
@@ -27,7 +28,9 @@ import java.util.regex.PatternSyntaxException;
  * @param password     the operator password, redacted from the transcript like the keys
  * @param pages        page name to a path on the panel. The model names a page; code supplies the
  *                     path, so each one has to be a plain path — see {@link #isPlainPath}
- * @param read         the tool that reads one page
+ * @param read          the tool that reads one page
+ * @param writablePages the pages a write may land on, each one of {@code pages}. Every other page is
+ *                      read-only for the run, whatever the endpoint would accept
  */
 public record TaskParams(
         String verifyTask,
@@ -37,7 +40,8 @@ public record TaskParams(
         String login,
         String password,
         Map<String, String> pages,
-        ToolPrompt read) {
+        ToolPrompt read,
+        List<String> writablePages) {
 
     /** Each check refuses at the binding boundary, before the transcript is even open. */
     public TaskParams {
@@ -59,6 +63,13 @@ public record TaskParams(
                             + " a single id. Set pages.<name>=<path> in the lesson's task.properties.");
         }
         for (Map.Entry<String, String> page : pages.entrySet()) {
+            // a detail read goes to /{name}/{id}, so the name is a path segment as well as a label
+            if (!PAGE_NAME.matcher(page.getKey()).matches()) {
+                throw new IllegalStateException(
+                        "pages." + page.getKey() + ": a page name must be lowercase letters, digits, - or"
+                                + " _, because a record on it is read from /{name}/{id}. Rename " + page.getKey()
+                                + " in the lesson's task.properties.");
+            }
             if (!isPlainPath(page.getValue())) {
                 throw new IllegalStateException(
                         "pages." + page.getKey() + " must be a path on the panel starting with a single /,"
@@ -67,9 +78,30 @@ public record TaskParams(
                                 + " Fix it in the lesson's task.properties.");
             }
         }
-        // the binder already keeps file order; copied so the order cannot change under the enum
-        pages = Collections.unmodifiableMap(new LinkedHashMap<>(pages));
+        // The binder hands the map over in hash order, not the file's, so the enum's order is fixed
+        // here instead: sorted by name, the same on every run and every machine.
+        pages = Collections.unmodifiableSortedMap(new TreeMap<>(pages));
+
+        // no writable page is a run that can change nothing, and would spend a model call learning it
+        if (writablePages == null || writablePages.isEmpty()) {
+            throw new IllegalStateException(
+                    "writablePages must name at least one page the run may change. Set"
+                            + " writablePages.1=<page>, ... in the lesson's task.properties.");
+        }
+        for (String writable : writablePages) {
+            // a typo here would refuse every write to the page that was meant
+            if (writable == null || !pages.containsKey(writable.strip())) {
+                throw new IllegalStateException(
+                        "writablePages lists " + writable + ", which is not one of the pages "
+                                + pages.keySet() + ". A page the run can write has to be one it can read"
+                                + " back. Fix it in the lesson's task.properties.");
+            }
+        }
+        writablePages = writablePages.stream().map(String::strip).toList();
     }
+
+    /** Lowercase so that the name and the path segment it becomes are the same string. */
+    private static final Pattern PAGE_NAME = Pattern.compile("[a-z0-9_-]+");
 
     /**
      * An {@code https} origin, returned without a trailing slash so that base + path has exactly

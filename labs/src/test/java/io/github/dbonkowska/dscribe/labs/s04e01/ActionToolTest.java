@@ -18,6 +18,7 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -42,13 +43,13 @@ class ActionToolTest {
     /** What the fake hub was handed, in order. */
     private final List<Sent> sent = new ArrayList<>();
 
-    /** Parameters keep their JSON types: a page number sent as a string is a different request. */
+    /** Parameters keep their JSON types: a number sent as a string is a different request. */
     @Test
     void sendsTheParametersWithTheActionAsTheAnswer(@TempDir Path root) {
-        tool(root).handler().apply(new ActionTool.Call("list", "{\"page\":2,\"q\":\"x\"}"));
+        tool(root).handler().apply(new ActionTool.Call("list", "{\"n\":2,\"q\":\"x\"}"));
 
         assertEquals(1, sent.size());
-        assertEquals(MAPPER.readTree("{\"page\":2,\"q\":\"x\",\"action\":\"list\"}"), sent.getFirst().answer());
+        assertEquals(MAPPER.readTree("{\"n\":2,\"q\":\"x\",\"action\":\"list\"}"), sent.getFirst().answer());
         assertTrue(sent.getFirst().label().contains("list"),
                 () -> "the transcript has to read per action: " + sent.getFirst().label());
     }
@@ -123,8 +124,44 @@ class ActionToolTest {
         assertTrue(thrown.getMessage().contains("action"), thrown::getMessage);
     }
 
+    @Test
+    void sendsAWriteToAPageTheBundleAllows(@TempDir Path root) {
+        tool(root).handler().apply(new ActionTool.Call("update", "{\"page\":\"front\",\"id\":\"x\"}"));
+
+        assertEquals(MAPPER.readTree("{\"page\":\"front\",\"id\":\"x\",\"action\":\"update\"}"), sent.getFirst().answer());
+    }
+
+    /**
+     * The write that happened. A model that could not read a record in full overwrote it, hoping the
+     * reply would show what was there — and the record held the one thing the run needed. The pages
+     * a run may change are the exercise's to say, so any other page is refused before it is sent.
+     */
+    @Test
+    void refusesAWriteToAPageTheBundleDoesNotAllowWithoutSendingAnything(@TempDir Path root) {
+        Tool<ActionTool.Call> tool = tool(root);
+
+        IllegalArgumentException thrown = assertThrows(IllegalArgumentException.class,
+                () -> tool.handler().apply(new ActionTool.Call("update", "{\"page\":\"other\",\"id\":\"x\"}")));
+
+        assertEquals(List.of(), sent);
+        assertTrue(thrown.getMessage().contains("other") && thrown.getMessage().contains("front")
+                        && thrown.getMessage().contains("notes"),
+                () -> "the model has to be told what it asked for and what it may write: " + thrown.getMessage());
+    }
+
+    /** A page that is not a name cannot be one of the allowed names, and is not waved through as one. */
+    @Test
+    void refusesAPageThatIsNotAStringWithoutSendingAnything(@TempDir Path root) {
+        Tool<ActionTool.Call> tool = tool(root);
+
+        assertThrows(IllegalArgumentException.class,
+                () -> tool.handler().apply(new ActionTool.Call("update", "{\"page\":3}")));
+
+        assertEquals(List.of(), sent);
+    }
+
     private Tool<ActionTool.Call> tool(Path root) {
-        return new ActionTool(hub(root)).tool("act", "does one action");
+        return new ActionTool(hub(root), Set.of("front", "notes")).tool("act", "does one action");
     }
 
     private ResilientHub hub(Path root) {

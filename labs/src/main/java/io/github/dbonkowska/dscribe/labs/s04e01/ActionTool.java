@@ -8,6 +8,8 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.node.ObjectNode;
 
+import java.util.Set;
+
 /**
  * Hands the model an endpoint it learns about at run time: it names an action and writes the
  * parameters, this sends them to verify as the answer, and whatever comes back goes to the model
@@ -43,10 +45,18 @@ final class ActionTool {
      */
     private static final String ACTION = "action";
 
-    private final ResilientHub hub;
+    /**
+     * Where the endpoint takes the page a write lands on. Mechanism, not task content: it names the
+     * endpoint's parameter shape, and the pages themselves come from the bundle.
+     */
+    private static final String PAGE = "page";
 
-    ActionTool(ResilientHub hub) {
+    private final ResilientHub hub;
+    private final Set<String> writablePages;
+
+    ActionTool(ResilientHub hub, Set<String> writablePages) {
         this.hub = hub;
+        this.writablePages = writablePages;
     }
 
     /** Name and description come from the lesson bundle: they are prompt surface. */
@@ -68,9 +78,30 @@ final class ActionTool {
                     "params must not contain " + ACTION + " — the action is chosen by the action argument,"
                             + " not inside the parameters. Nothing was sent. Remove it and call again.");
         }
+        refuseUnwritablePage(answer.get(PAGE));
         answer.put(ACTION, action);
 
         return ToolOutput.of(hub.call("action · " + action, answer));
+    }
+
+    /**
+     * A call without a page passes: the completion and help actions carry none, and the endpoint
+     * refuses an edit that lacks one. A page that is not a string cannot be one of the allowed names,
+     * so it is refused rather than waved through as "no page".
+     *
+     * <p>Why the guard exists: a model that could only see a record truncated overwrote it, hoping the
+     * reply would show what had been there, and the record held the one thing the run needed. Which
+     * pages a run may change is the exercise's to say; anything else is refused before it is sent.
+     */
+    private void refuseUnwritablePage(JsonNode page) {
+        if (page == null) {
+            return;
+        }
+        if (!page.isString() || !writablePages.contains(page.stringValue())) {
+            throw new IllegalArgumentException(
+                    "This run may not write to page " + page + ". Nothing was sent. The pages it may"
+                            + " change are " + writablePages + "; the others can only be read.");
+        }
     }
 
     /**

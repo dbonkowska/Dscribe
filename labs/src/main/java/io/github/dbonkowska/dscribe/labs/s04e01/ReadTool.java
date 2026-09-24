@@ -35,8 +35,10 @@ final class ReadTool {
      * The whole schema the model sees.
      *
      * @param page one of the pages the bundle names
+     * @param id   a record's id to read it whole, or empty for the page's list. A list truncates each
+     *             record, so a record whose point is past the cut can only be read this way
      */
-    record Read(String page) {}
+    record Read(String page, String id) {}
 
     /**
      * One GET on the logged-in panel, returning the body as it came — {@code PanelClient::get}, and a
@@ -57,6 +59,13 @@ final class ReadTool {
      * answers with the form rather than an error, so this is the one sign of it.
      */
     private static final String LOGIN_FIELD = "name=\"access_key\"";
+
+    /**
+     * The one shape a record id has, matched whole. The id becomes a path segment, and the panel's
+     * own links include {@code /delete/{id}}, where a GET may well delete: so an id is identified
+     * positively by its shape, never by the absence of characters thought dangerous.
+     */
+    private static final Pattern RECORD_ID = Pattern.compile("[0-9a-f]{32}");
 
     private final Fetch fetch;
     private final Map<String, String> pages;
@@ -80,21 +89,29 @@ final class ReadTool {
             allowed.add(page);
         }
 
-        return new Tool<>(name, description, Read.class, args -> read(args.page()), schema);
+        return new Tool<>(name, description, Read.class, args -> read(args.page(), args.id()), schema);
     }
 
     /**
      * Each refusal throws. {@code Toolbox} turns that into a tool result the model reads, and both
      * say what to do instead.
      */
-    private ToolOutput read(String page) {
-        String path = pages.get(page);
-        if (path == null) {
+    private ToolOutput read(String page, String id) {
+        String listPath = pages.get(page);
+        if (listPath == null) {
             throw new IllegalArgumentException(
                     "No page " + page + ". Nothing was read. Read one of " + pages.keySet() + ".");
         }
 
-        String html = fetch.get("read · " + page, path);
+        boolean list = id == null || id.isEmpty();
+        if (!list && !RECORD_ID.matcher(id).matches()) {
+            throw new IllegalArgumentException(
+                    "id " + id + " is not a record id. Nothing was read. A record id is the 32 lowercase"
+                            + " hex characters in the panel's links; leave id empty to read the whole page.");
+        }
+
+        String path = list ? listPath : "/" + page + "/" + id;
+        String html = fetch.get(list ? "read · " + page : "read · " + page + " · " + id, path);
         if (html.contains(LOGIN_FIELD)) {
             throw new IllegalStateException(
                     "The panel answered with its login form, so the login failed and " + page

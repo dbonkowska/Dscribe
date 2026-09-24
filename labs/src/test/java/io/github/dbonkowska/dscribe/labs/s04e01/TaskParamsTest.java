@@ -37,6 +37,7 @@ class TaskParamsTest {
             pages.notes=/notes
             read.name=read
             read.description=reads one page
+            writablePages.1=front
             """;
 
     @Test
@@ -54,13 +55,23 @@ class TaskParamsTest {
         assertEquals("reads one page", params.read().description());
     }
 
-    /** The order is the order the schema's enum offers the pages in, so it has to be the file's. */
+    /**
+     * The binder does not keep the file's order — a real bundle of four pages came back shuffled,
+     * where two pages had happened to survive. So the order the schema's enum offers is fixed here
+     * instead, by name. These four bind as west, south, east, north — neither the file's order nor
+     * sorted — so a map left as bound cannot pass by luck, as a first fixture here did.
+     */
     @Test
-    void bindsThePagesInFileOrder() {
-        TaskParams params = new JavaPropsMapper().readValue(COMPLETE, TaskParams.class);
+    void bindsThePagesSortedByName() {
+        String props = COMPLETE
+                .replace("pages.front=/\n", "")
+                .replace("pages.notes=/notes\n", "pages.north=/n\npages.east=/e\npages.south=/s\npages.west=/w\n")
+                .replace("writablePages.1=front", "writablePages.1=east");
 
-        assertEquals(List.of("front", "notes"), List.copyOf(params.pages().keySet()));
-        assertEquals(List.of("/", "/notes"), List.copyOf(params.pages().values()));
+        TaskParams params = new JavaPropsMapper().readValue(props, TaskParams.class);
+
+        assertEquals(List.of("east", "north", "south", "west"), List.copyOf(params.pages().keySet()));
+        assertEquals(List.of("/e", "/n", "/s", "/w"), List.copyOf(params.pages().values()));
     }
 
     @ParameterizedTest
@@ -156,6 +167,50 @@ class TaskParamsTest {
                 () -> new JavaPropsMapper().readValue(props, TaskParams.class));
 
         assertTrue(thrown.getMessage().contains("panelBaseUrl"), thrown::getMessage);
+    }
+
+    @Test
+    void bindsTheWritablePages() {
+        TaskParams params = new JavaPropsMapper().readValue(COMPLETE, TaskParams.class);
+
+        assertEquals(List.of("front"), params.writablePages());
+    }
+
+    /** No writable page is a run that can change nothing, and would spend a model call learning it. */
+    @Test
+    void refusesAFileWithNoWritablePages() {
+        String props = COMPLETE.replace("writablePages.1=front\n", "");
+
+        RuntimeException thrown = assertThrows(RuntimeException.class,
+                () -> new JavaPropsMapper().readValue(props, TaskParams.class));
+
+        assertTrue(thrown.getMessage().contains("writablePages"), thrown::getMessage);
+    }
+
+    /**
+     * A writable page the panel does not show is one the model can write and never read back — and a
+     * typo here would refuse every write to the page that was meant.
+     */
+    @Test
+    void refusesAWritablePageThatIsNotAConfiguredPage() {
+        String props = COMPLETE.replace("writablePages.1=front", "writablePages.1=frnt");
+
+        RuntimeException thrown = assertThrows(RuntimeException.class,
+                () -> new JavaPropsMapper().readValue(props, TaskParams.class));
+
+        assertTrue(thrown.getMessage().contains("frnt"), thrown::getMessage);
+    }
+
+    /** Page names now form a path segment of a detail read, so they have to be one. */
+    @ParameterizedTest
+    @ValueSource(strings = {"a/b", "A", "a?b", "a%2f", "a;b"})
+    void refusesAPageNameThatIsNotAPlainSegment(String name) {
+        String props = COMPLETE.replace("pages.notes=/notes", "pages." + name + "=/notes");
+
+        RuntimeException thrown = assertThrows(RuntimeException.class,
+                () -> new JavaPropsMapper().readValue(props, TaskParams.class));
+
+        assertTrue(thrown.getMessage().contains(name), thrown::getMessage);
     }
 
     /** A trailing slash is still an origin, and the one most likely to be written. */
