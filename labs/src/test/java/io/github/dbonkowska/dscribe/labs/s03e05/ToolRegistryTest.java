@@ -42,7 +42,7 @@ class ToolRegistryTest {
 
     /** Only a plain path keeps the key on the hub — see {@link HubPath}. */
     @ParameterizedTest
-    @ValueSource(strings = {"https://evil.example/x", "//evil.example/x", "@evil.example/x"})
+    @ValueSource(strings = {"https://evil.example/x", "//evil.example/x", "@evil.example/x", "/api/a b"})
     void refusesAToolThatIsNotAPlainPathOnTheHub(String url) {
         List<String> refusals = registry.register(reply(tool("alpha", url, "query")));
 
@@ -50,6 +50,26 @@ class ToolRegistryTest {
         assertEquals(1, refusals.size());
         assertTrue(refusals.getFirst().contains("alpha"), refusals::toString);
         assertTrue(refusals.getFirst().contains(url), refusals::toString);
+        assertEquals(Optional.of(refusals.getFirst()), registry.refusalOf("alpha"),
+                "a later call by this name has to be told why, not sent back to search");
+    }
+
+    /** A tool refused once and registered by a later search is callable, and no longer refused. */
+    @Test
+    void forgetsARefusalOnceTheNameRegisters() {
+        registry.register(reply(tool("alpha", "/api/alpha", "q")));
+        registry.register(reply(tool("alpha", "/api/alpha", "query")));
+
+        assertEquals(Optional.of("/api/alpha"), registry.pathOf("alpha"));
+        assertEquals(Optional.empty(), registry.refusalOf("alpha"));
+    }
+
+    /** The model copies the name it was shown, so that exact string has to resolve. */
+    @Test
+    void resolvesANameExactlyAsTheReplyWroteIt() {
+        registry.register(reply(tool(" alpha ", "/api/alpha", "query")));
+
+        assertEquals(Optional.of("/api/alpha"), registry.pathOf(" alpha "));
     }
 
     /** Every call sends {@code query}; a tool that names another argument would receive nothing it reads. */

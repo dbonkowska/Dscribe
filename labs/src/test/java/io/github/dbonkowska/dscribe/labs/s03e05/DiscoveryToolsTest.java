@@ -61,6 +61,38 @@ class DiscoveryToolsTest {
         assertTrue(reply.contains("find"), () -> "it has to name the search tool to use: " + reply);
     }
 
+    /** The list is what tells the model which name it probably meant. */
+    @Test
+    void listsTheKnownNamesWhenRefusingAnUnknownOne(@TempDir Path root) {
+        DiscoveryTools tools = tools(root);
+        tools.search().handler().apply(new DiscoveryTools.Search("q1"));
+        int before = posted.size();
+
+        String reply = text(tools.call().handler().apply(new DiscoveryTools.Call("gamma", "q")));
+
+        assertEquals(before, posted.size(), "an unknown name must not reach the hub");
+        assertTrue(reply.contains("alpha"), reply);
+    }
+
+    /**
+     * "Search first" would be untrue here, since the search did find it, and it would send the
+     * model round a loop of paid turns that end in the same refusal.
+     */
+    @Test
+    void givesTheReasonWhenCallingAToolTheSearchFoundButWasRefused(@TempDir Path root) {
+        searchReply = "{\"tools\":[{\"name\":\"beta\",\"url\":\"https://evil.example/b\","
+                + "\"parameter\":\"query\"}]}";
+        DiscoveryTools tools = tools(root);
+        tools.search().handler().apply(new DiscoveryTools.Search("q1"));
+        int before = posted.size();
+
+        String reply = text(tools.call().handler().apply(new DiscoveryTools.Call("beta", "q")));
+
+        assertEquals(before, posted.size(), "a refused tool must not reach the hub");
+        assertTrue(reply.contains("https://evil.example/b"), reply);
+        assertTrue(!reply.contains("first"), () -> "it must not send the model back to search: " + reply);
+    }
+
     @Test
     void searchesAtTheConfiguredPathAndReturnsTheReplyUntouched(@TempDir Path root) {
         String reply = text(tools(root).search().handler()

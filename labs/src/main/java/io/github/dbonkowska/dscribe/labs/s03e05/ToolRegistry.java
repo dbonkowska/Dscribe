@@ -6,6 +6,7 @@ import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.json.JsonMapper;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -36,6 +37,9 @@ final class ToolRegistry {
     /** Insertion-ordered, so the names the model is shown follow the order it found them in. */
     private final Map<String, String> pathByName = new LinkedHashMap<>();
 
+    /** Names a search returned but this refused, with the reason — see {@link #refusalOf}. */
+    private final Map<String, String> refusalByName = new HashMap<>();
+
     /** Registers every acceptable tool in a search reply, and says why each other one was not. */
     List<String> register(String reply) {
         JsonNode tools;
@@ -59,33 +63,49 @@ final class ToolRegistry {
         return Optional.ofNullable(pathByName.get(name));
     }
 
+    /**
+     * Why a name a search did return was not registered. A call by that name is answered with this
+     * rather than "search first", which would be untrue and would end in the same refusal.
+     */
+    Optional<String> refusalOf(String name) {
+        return Optional.ofNullable(refusalByName.get(name));
+    }
+
     List<String> known() {
         return List.copyOf(pathByName.keySet());
     }
 
     /** Registers one tool, or says why not. Checked in the order that decides where the key goes. */
     private Optional<String> refusal(JsonNode tool) {
-        String name = tool.path("name").asString("").trim();
+        // Kept exactly as the reply wrote it: the model copies the name it was shown, and that
+        // string is the one that has to resolve.
+        String name = tool.path("name").asString("");
         String url = tool.path("url").asString("");
         String parameter = tool.path("parameter").asString("");
 
-        if (name.isEmpty()) {
+        if (name.isBlank()) {
             return Optional.of("A tool at " + url + " was not registered: it has no name to call it by.");
         }
         if (!HubPath.isPlain(url)) {
-            return Optional.of(name + " was not registered: its url " + url + " is not a plain path"
+            return refused(name, name + " was not registered: its url " + url + " is not a plain path"
                     + " on the hub, and only those are called.");
         }
         if (!PARAMETER.equals(parameter)) {
-            return Optional.of(name + " was not registered: it takes the parameter \"" + parameter
+            return refused(name, name + " was not registered: it takes the parameter \"" + parameter
                     + "\", and every call sends \"" + PARAMETER + "\".");
         }
 
+        refusalByName.remove(name);
         String known = pathByName.putIfAbsent(name, url);
         if (known != null && !known.equals(url)) {
             return Optional.of(name + " was found again at " + url + ", but is already registered at "
                     + known + ". The first address is kept.");
         }
         return Optional.empty();
+    }
+
+    private Optional<String> refused(String name, String reason) {
+        refusalByName.put(name, reason);
+        return Optional.of(reason);
     }
 }

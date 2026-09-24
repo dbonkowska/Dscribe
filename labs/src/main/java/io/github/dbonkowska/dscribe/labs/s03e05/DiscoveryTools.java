@@ -56,6 +56,10 @@ final class DiscoveryTools {
         return new Tool<>(task.call().name(), task.call().description(), Call.class, args -> {
             Optional<String> path = registry.pathOf(args.name());
             if (path.isEmpty()) {
+                Optional<String> refused = registry.refusalOf(args.name());
+                if (refused.isPresent()) {
+                    return ToolOutput.of(refused.get());
+                }
                 return ToolOutput.of("No tool named " + args.name() + " has been found. Known tools: "
                         + (registry.known().isEmpty() ? "none yet" : String.join(", ", registry.known()))
                         + ". Find it with " + task.search().name() + " first.");
