@@ -19,15 +19,17 @@ import java.util.regex.PatternSyntaxException;
  * <p>The panel's pages bind by name: {@code pages.front=/}, {@code pages.notes=/notes}. The read tool
  * offers them sorted by name; the file's order is not kept, because the binder does not keep it.
  *
- * @param verifyTask   the task name the hub expects
- * @param flagPattern  a regex matching a reply that carries the result
- * @param action       the tool that sends one action
- * @param panelBaseUrl the panel's origin. The hub key is its access key, so this is where the key
- *                     goes: an {@code https} origin, stored without a trailing slash
- * @param login        the operator login the exercise hands over
- * @param password     the operator password, redacted from the transcript like the keys
- * @param pages        page name to a path on the panel. The model names a page; code supplies the
- *                     path, so each one has to be a plain path — see {@link #isPlainPath}
+ * @param verifyTask    the task name the hub expects
+ * @param flagPattern   a regex matching a reply that carries the result
+ * @param action        the tool that sends one action
+ * @param panelBaseUrl  the panel's origin. The hub key is its access key, so this is where the key
+ *                      goes: an {@code https} origin with no user info, stored without a trailing
+ *                      slash
+ * @param login         the operator login the exercise hands over
+ * @param password      the operator password, redacted from the transcript and from every page the
+ *                      model is shown, like the keys
+ * @param pages         page name to a path on the panel. The model names a page; code supplies the
+ *                      path, so each one has to be a plain path — see {@link #isPlainPath}
  * @param read          the tool that reads one page
  * @param writablePages the pages a write may land on, each one of {@code pages}. Every other page is
  *                      read-only for the run, whatever the endpoint would accept
@@ -42,6 +44,9 @@ public record TaskParams(
         Map<String, String> pages,
         ToolPrompt read,
         List<String> writablePages) {
+
+    /** Lowercase so that the name and the path segment it becomes are the same string. */
+    private static final Pattern PAGE_NAME = Pattern.compile("[a-z0-9_-]+");
 
     /** Each check refuses at the binding boundary, before the transcript is even open. */
     public TaskParams {
@@ -100,9 +105,6 @@ public record TaskParams(
         writablePages = writablePages.stream().map(String::strip).toList();
     }
 
-    /** Lowercase so that the name and the path segment it becomes are the same string. */
-    private static final Pattern PAGE_NAME = Pattern.compile("[a-z0-9_-]+");
-
     /**
      * An {@code https} origin, returned without a trailing slash so that base + path has exactly
      * one. Anything else is refused: a plain {@code http} base would send the hub key unencrypted,
@@ -119,6 +121,7 @@ public record TaskParams(
         if (uri == null
                 || !"https".equals(uri.getScheme())
                 || uri.getHost() == null
+                || uri.getRawUserInfo() != null
                 || (path != null && !path.isEmpty() && !path.equals("/"))
                 || uri.getRawQuery() != null
                 || uri.getRawFragment() != null) {

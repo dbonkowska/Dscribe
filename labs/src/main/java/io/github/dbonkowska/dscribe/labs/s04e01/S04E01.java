@@ -17,6 +17,7 @@ import io.github.dbonkowska.dscribe.tool.Toolbox;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -81,15 +82,16 @@ public class S04E01 {
         settings.put("panel base url", task.panelBaseUrl());
         settings.put("pages", String.join(", ", task.pages().keySet()));
         settings.put("environment reset",
-                "none sent — assumed cleared by the hub at session start; check the first transcript");
+                "panel login before the loop — resets the exercise (confirmed by the user, 2026-09-24)");
 
         // The login travels form-encoded, and an encoded password is a different string: redacting
         // only the raw one would leave it readable wherever it had a character that encodes.
-        List<String> secrets = List.of(
-                labsConfig.llm().apiKey(),
+        List<String> credentials = List.of(
                 labsConfig.hub().apiKey(),
                 task.password(),
                 URLEncoder.encode(task.password(), StandardCharsets.UTF_8));
+        List<String> secrets = new ArrayList<>(credentials);
+        secrets.add(labsConfig.llm().apiKey());
 
         try (RunTranscript transcript = RunTranscript.open(
                 labsConfig.dataDir().resolve("logs"),
@@ -108,14 +110,19 @@ public class S04E01 {
                     Sleeper.real(),
                     transcript);
 
-            // No reset, here or in a finally: the hub is assumed to clear the exercise's state when a
-            // session starts. If the first transcript shows edits the run did not make, that
-            // assumption is wrong, and a reset at startup is the fix.
+            // The reset, once, at startup and before anything is sent: a panel login clears whatever an
+            // earlier run changed. Nothing resets in a finally — the state a failed run ends in is
+            // the evidence for how it failed, and the next run's login clears it anyway.
             PanelClient panel = new PanelClient(
                     task.panelBaseUrl(), task.login(), task.password(), labsConfig.hub().apiKey(), transcript);
+            panel.login();
+
+            // The panel prints the hub key on its pages, so what the model is shown is redacted with
+            // the same credentials as the transcript — not only what is logged.
             Toolbox tools = new Toolbox(List.of(
-                    new ActionTool(resilient, Set.copyOf(task.writablePages())).tool(task.action().name(), task.action().description()),
-                    new ReadTool(panel, task.pages(), labsConfig.hub().apiKey())
+                    new ActionTool(resilient, Set.copyOf(task.writablePages()))
+                            .tool(task.action().name(), task.action().description()),
+                    new ReadTool(panel, task.pages(), credentials)
                             .tool(task.read().name(), task.read().description())));
 
             List<Message> seed = List.of(new Message(Role.system, system));

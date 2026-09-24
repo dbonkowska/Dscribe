@@ -27,6 +27,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class ReadToolTest {
 
     private static final String KEY = "KEY-123";
+    private static final String PASSWORD = "pass-456";
 
     /** A record id in the panel's shape: 32 lowercase hex characters, invented. */
     private static final String HEX = "0123456789abcdef0123456789abcdef";
@@ -95,6 +96,20 @@ class ReadToolTest {
         assertEquals(2, result.split(Pattern.quote(ReadTool.REDACTED), -1).length - 1,
                 () -> "each occurrence is marked, so the model knows something was there: " + result);
         assertTrue(result.contains("href=\"/r/ab12\""), "the rest of the attribute stays");
+    }
+
+    /**
+     * Every credential, not only the one the panel is known to print: a users page is the one most
+     * likely to echo an account's details, and a password there would go to the provider.
+     */
+    @Test
+    void neverReturnsAnyOfTheSecrets() {
+        String page = "<html><body><td>" + PASSWORD + "</td><td>" + KEY + "</td></body></html>";
+
+        String result = (String) tool(page).handler().apply(new ReadTool.Read("front", "")).result();
+
+        assertFalse(result.contains(PASSWORD), result);
+        assertFalse(result.contains(KEY), result);
     }
 
     /** The schema narrows pages, but a provider is not obliged to honour a schema. */
@@ -175,6 +190,6 @@ class ReadToolTest {
             fetched.add(new Fetched(label, path));
             return page;
         };
-        return new ReadTool(fake, pages(), KEY).tool("read", "reads one page");
+        return new ReadTool(fake, pages(), List.of(KEY, PASSWORD)).tool("read", "reads one page");
     }
 }

@@ -21,7 +21,7 @@ import java.util.Set;
  * The parameters are one string of JSON, which keeps {@code strict = true} intact where a schema
  * accepting arbitrary objects would not.
  *
- * <p>Every action is a write that stays, so a malformed call is refused before it is sent rather
+ * <p>Every edit is a write that stays, so a malformed call is refused before it is sent rather
  * than left for the hub to interpret. Nothing is shared with s02e04's tool: a type imported from a
  * finished lesson would freeze it.
  */

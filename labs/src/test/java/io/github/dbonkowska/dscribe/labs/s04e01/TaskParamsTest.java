@@ -159,7 +159,9 @@ class TaskParamsTest {
      * cover.
      */
     @ParameterizedTest
-    @ValueSource(strings = {"http://panel.example", "https://panel.example/x", "panel.example", "https://"})
+    @ValueSource(strings = {
+            "http://panel.example", "https://panel.example/x", "panel.example", "https://",
+            "https://user@panel.example"})
     void refusesABaseUrlThatIsNotAnHttpsOrigin(String base) {
         String props = COMPLETE.replace("panelBaseUrl=https://panel.example", "panelBaseUrl=" + base);
 
@@ -199,6 +201,26 @@ class TaskParamsTest {
                 () -> new JavaPropsMapper().readValue(props, TaskParams.class));
 
         assertTrue(thrown.getMessage().contains("frnt"), thrown::getMessage);
+    }
+
+    /** Compared and stored stripped: a padded entry would otherwise refuse every write to its page. */
+    @Test
+    void storesAWritablePageStripped() {
+        String props = COMPLETE.replace("writablePages.1=front", "writablePages.1= front ");
+
+        TaskParams params = new JavaPropsMapper().readValue(props, TaskParams.class);
+
+        assertEquals(List.of("front"), params.writablePages());
+    }
+
+    @Test
+    void refusesABlankWritablePage() {
+        String props = COMPLETE.replace("writablePages.1=front", "writablePages.1=front\nwritablePages.2=   ");
+
+        RuntimeException thrown = assertThrows(RuntimeException.class,
+                () -> new JavaPropsMapper().readValue(props, TaskParams.class));
+
+        assertTrue(thrown.getMessage().contains("writablePages"), thrown::getMessage);
     }
 
     /** Page names now form a path segment of a detail read, so they have to be one. */

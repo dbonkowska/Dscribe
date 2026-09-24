@@ -6,6 +6,7 @@ import io.github.dbonkowska.dscribe.tool.ToolOutput;
 import tools.jackson.databind.node.ArrayNode;
 import tools.jackson.databind.node.ObjectNode;
 
+import java.util.List;
 import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -23,12 +24,13 @@ import java.util.regex.Pattern;
  * is what the model cannot use and would pay for on every later turn: the head, styles and scripts.
  *
  * <p>The panel prints the hub key on every logged-in page. Whatever this returns goes to the model
- * and from there to the provider, so the key is replaced by value before it leaves — the same way
- * the transcript redacts, and for the same reason: it does not matter where on the page it sits.
+ * and from there to the provider, so every credential of the session is replaced by value before it
+ * leaves — the same way the transcript redacts, and for the same reason: it does not matter where on
+ * the page it sits.
  */
 final class ReadTool {
 
-    /** What stands where the key was, so the model sees that something was removed. */
+    /** What stands where a credential was, so the model sees that something was removed. */
     static final String REDACTED = "[redacted]";
 
     /**
@@ -69,16 +71,17 @@ final class ReadTool {
 
     private final Fetch fetch;
     private final Map<String, String> pages;
-    private final String secret;
+    private final List<String> secrets;
 
     /**
-     * @param pages  page name to a path on the panel, in the order the model is offered them
-     * @param secret the hub key, removed from every page before it is returned
+     * @param pages   page name to a path on the panel, in the order the model is offered them
+     * @param secrets every credential of the session — the hub key, the password raw and encoded —
+     *                each removed from every page before it is returned
      */
-    ReadTool(Fetch fetch, Map<String, String> pages, String secret) {
+    ReadTool(Fetch fetch, Map<String, String> pages, List<String> secrets) {
         this.fetch = fetch;
         this.pages = pages;
-        this.secret = secret;
+        this.secrets = secrets;
     }
 
     /** Name and description come from the lesson bundle: they are prompt surface. */
@@ -93,8 +96,9 @@ final class ReadTool {
     }
 
     /**
-     * Each refusal throws. {@code Toolbox} turns that into a tool result the model reads, and both
-     * say what to do instead.
+     * Each refusal throws — an unknown page, an id not shaped like one, a login form where a page
+     * should be. {@code Toolbox} turns that into a tool result the model reads, and each says what to
+     * do instead.
      */
     private ToolOutput read(String page, String id) {
         String listPath = pages.get(page);
@@ -129,6 +133,12 @@ final class ReadTool {
 
     /** A blank secret is not replaced: it would match between every character. */
     private String redact(String page) {
-        return secret == null || secret.isBlank() ? page : page.replace(secret, REDACTED);
+        String redacted = page;
+        for (String secret : secrets) {
+            if (secret != null && !secret.isBlank()) {
+                redacted = redacted.replace(secret, REDACTED);
+            }
+        }
+        return redacted;
     }
 }
