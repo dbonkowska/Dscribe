@@ -138,6 +138,41 @@ class TaskParamsTest {
         assertTrue(thrown.getMessage().contains("jobs"), thrown::getMessage);
     }
 
+    /**
+     * A job listed twice is queued twice, and its second result fails the collection as a duplicate —
+     * inside the window.
+     */
+    @Test
+    void refusesAJobListedTwice() {
+        RuntimeException thrown = assertThrows(RuntimeException.class,
+                () -> bind(COMPLETE.replace("jobs.2=second", "jobs.2=first")));
+
+        assertTrue(thrown.getMessage().contains("jobs"), thrown::getMessage);
+        assertTrue(thrown.getMessage().contains("first"), thrown::getMessage);
+    }
+
+    /**
+     * Each document fills the placeholder with its name, so a job named like the documentation would
+     * overwrite it: a well-formed prompt with the documentation silently missing.
+     */
+    @Test
+    void refusesAJobNamedLikeTheDocumentation() {
+        RuntimeException thrown = assertThrows(RuntimeException.class,
+                () -> bind(COMPLETE.replace("jobs.2=second", "jobs.2=manual")));
+
+        assertTrue(thrown.getMessage().contains("manual"), thrown::getMessage);
+        assertTrue(thrown.getMessage().contains("documentation"), thrown::getMessage);
+    }
+
+    /** One request carries both fields; with one name, one of the two values is lost. */
+    @Test
+    void refusesTheSameNameForTheActionAndTheParamField() {
+        RuntimeException thrown = assertThrows(RuntimeException.class,
+                () -> bind(COMPLETE.replace("protocol.paramField=what", "protocol.paramField=verb")));
+
+        assertTrue(thrown.getMessage().contains("protocol.paramField"), thrown::getMessage);
+    }
+
     /** Without slot fields a batch entry has no key, and every point would be filed under "". */
     @Test
     void refusesAFileWithNoSlotFields() {

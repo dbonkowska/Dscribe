@@ -85,6 +85,18 @@ class PointSchemaTest {
         assertTrue(thrown.getMessage().contains("mood"), thrown::getMessage);
     }
 
+    /**
+     * A signature finds its point by the values it echoes. If a slot field is not signed, two points
+     * in different slots can sign identical values, and their signatures cannot be told apart.
+     */
+    @Test
+    void refusesASlotFieldThatIsNotSigned() {
+        IllegalStateException thrown = assertThrows(IllegalStateException.class, () -> PointSchema.from(
+                HELP, "/verbs/sign/needs", "/verbs/store/needs", "seal", List.of("day", "mode"), Map.of()));
+
+        assertTrue(thrown.getMessage().contains("mode"), thrown::getMessage);
+    }
+
     @Test
     void acceptsAWellFormedAnswer() {
         List<Map<String, String>> points = SCHEMA.validate(json("""
@@ -130,6 +142,25 @@ class PointSchemaTest {
         assertRefused("""
                 {"points": [{"day": "d1", "time": "t1", "x": "3", "y": "0", "mode": "maybe"}]}
                 """, "point 1", "mode", "maybe");
+    }
+
+    /** Stripped once, then checked: surrounding spaces neither pass nor fail a value on their own. */
+    @Test
+    void checksTheVocabularyOnTheStrippedValue() {
+        List<Map<String, String>> points = SCHEMA.validate(json("""
+                {"points": [{"day": "d1", "time": "t1", "x": "3 ", "y": "0", "mode": " on"}]}
+                """));
+
+        assertEquals("on", points.get(0).get("mode"));
+        assertEquals("3", points.get(0).get("x"));
+    }
+
+    /** A provider that ignores the schema and answers a number has answered, just not as asked. */
+    @Test
+    void namesAValueThatIsNotAString() {
+        assertRefused("""
+                {"points": [{"day": "d1", "time": "t1", "x": 3, "y": "0", "mode": "on"}]}
+                """, "point 1", "x", "not a string");
     }
 
     /** Two points in one slot would overwrite each other in the batch, silently. */

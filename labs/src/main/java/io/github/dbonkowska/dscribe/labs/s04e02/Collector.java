@@ -70,8 +70,12 @@ public class Collector {
         while (!results.keySet().containsAll(expected)) {
             Duration remaining = Duration.between(clock.instant(), deadline);
             if (remaining.isNegative() || remaining.isZero()) {
+                // A result set aside is often the awaited one, keyed wrongly — worth saying first.
+                String setAside = unexpected.isEmpty()
+                        ? ""
+                        : " (" + unexpected.size() + " results set aside, matching no key)";
                 throw new IllegalStateException(
-                        "Deadline passed still waiting for " + missing(expected, results) + ".");
+                        "Deadline passed still waiting for " + missing(expected, results) + setAside + ".");
             }
 
             HubResponse response = poll.get();

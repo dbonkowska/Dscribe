@@ -79,6 +79,13 @@ public final class PointSchema {
                         "slotFields names " + slot + ", which is not a field of a point " + fields
                                 + ". Fix it in the lesson's task.properties.");
             }
+            // A signature finds its point by the values it echoes, and only slots are unique: a slot
+            // field left unsigned lets two points sign identical values, indistinguishable on return.
+            if (!signing.contains(slot)) {
+                throw new IllegalStateException(
+                        "slotFields names " + slot + ", which the signing action does not take " + signing
+                                + ": signatures could not be told apart by what they echo.");
+            }
         }
         for (String field : enums.keySet()) {
             if (!fields.contains(field)) {
@@ -164,16 +171,24 @@ public final class PointSchema {
             }
             Map<String, String> point = new LinkedHashMap<>();
             for (String field : fields) {
-                JsonNode value = item.get(field);
-                if (value == null || !value.isString() || value.asString().isBlank()) {
+                JsonNode node = item.get(field);
+                if (node == null || node.isNull()) {
+                    throw new IllegalStateException(where + " has no value for " + field + ".");
+                }
+                if (!node.isString()) {
+                    throw new IllegalStateException(where + " gives " + field + " as " + node + ", not a string.");
+                }
+                // stripped once, and every check below is on what will be sent
+                String value = node.asString().strip();
+                if (value.isEmpty()) {
                     throw new IllegalStateException(where + " has no value for " + field + ".");
                 }
                 List<String> vocabulary = enums.get(field);
-                if (vocabulary != null && !vocabulary.contains(value.asString())) {
+                if (vocabulary != null && !vocabulary.contains(value)) {
                     throw new IllegalStateException(
-                            where + " sets " + field + " to " + value.asString() + ", not one of " + vocabulary + ".");
+                            where + " sets " + field + " to " + value + ", not one of " + vocabulary + ".");
                 }
-                point.put(field, value.asString().strip());
+                point.put(field, value);
             }
             Integer earlier = slots.putIfAbsent(slot(point), number);
             if (earlier != null) {

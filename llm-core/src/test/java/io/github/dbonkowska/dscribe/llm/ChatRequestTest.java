@@ -32,7 +32,7 @@ class ChatRequestTest {
 
     @Test
     void namesTheResponseFormatKeysTheWayTheProviderSpellsThem() {
-        ChatRequest request = new ChatRequest("m", MESSAGES, ResponseFormat.jsonSchema("r", SCHEMA));
+        ChatRequest request = new ChatRequest("m", MESSAGES, ResponseFormat.jsonSchema("r", SCHEMA), null, null, null);
 
         assertEquals("json_schema", request.responseFormat().type());
         assertEquals("r", request.responseFormat().jsonSchema().name());
@@ -46,7 +46,7 @@ class ChatRequestTest {
 
     @Test
     void omitsResponseFormatEntirelyWhenThereIsNone() {
-        JsonNode json = json(new ChatRequest("m", MESSAGES, null));
+        JsonNode json = json(new ChatRequest("m", MESSAGES, null, null, null, null));
 
         assertFalse(json.has("response_format"), () -> "expected no response_format in: " + json);
         assertEquals("m", json.get("model").stringValue());
@@ -55,7 +55,7 @@ class ChatRequestTest {
     @Test
     void offersEveryToolAlongsideTheChoiceOfWhetherToUseThem() {
         ChatRequest request = new ChatRequest(
-                "m", MESSAGES, null, List.of(spec("lookup"), spec("count")), "auto");
+                "m", MESSAGES, null, List.of(spec("lookup"), spec("count")), "auto", null);
 
         JsonNode json = json(request);
 
@@ -67,7 +67,7 @@ class ChatRequestTest {
     @Test
     void omitsToolKeysEntirelyWhenThereAreNoTools() {
         // a tools: null key is rejected rather than ignored, so absence has to be total
-        JsonNode json = json(new ChatRequest("m", MESSAGES, null));
+        JsonNode json = json(new ChatRequest("m", MESSAGES, null, null, null, null));
 
         assertFalse(json.has("tools"), () -> "expected no tools in: " + json);
         assertFalse(json.has("tool_choice"), () -> "expected no tool_choice in: " + json);
@@ -88,7 +88,7 @@ class ChatRequestTest {
 
     @Test
     void omitsReasoningEntirelyWhenNoneIsSet() {
-        JsonNode json = json(new ChatRequest("m", MESSAGES, null));
+        JsonNode json = json(new ChatRequest("m", MESSAGES, null, null, null, null));
 
         assertFalse(json.has("reasoning"), () -> "expected no reasoning in: " + json);
     }

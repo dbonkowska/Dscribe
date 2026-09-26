@@ -22,16 +22,4 @@ public record ChatRequest(
         @JsonProperty("response_format") ResponseFormat responseFormat,
         List<ToolSpec> tools,
         @JsonProperty("tool_choice") String toolChoice,
-        Reasoning reasoning) {
-
-    /** A request offering tools, thinking as long as the provider's default allows. */
-    public ChatRequest(
-            String model, List<Message> messages, ResponseFormat responseFormat, List<ToolSpec> tools, String toolChoice) {
-        this(model, messages, responseFormat, tools, toolChoice, null);
-    }
-
-    /** A request with no tools in play — structured output, or plain text. */
-    public ChatRequest(String model, List<Message> messages, ResponseFormat responseFormat) {
-        this(model, messages, responseFormat, null, null, null);
-    }
-}
+        Reasoning reasoning) {}

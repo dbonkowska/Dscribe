@@ -25,7 +25,6 @@ import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
-import java.util.stream.IntStream;
 
 /**
  * A service window of a few dozen seconds, a queue that answers in any order, and one model call
@@ -56,6 +55,9 @@ public class S04E02 {
     private static final String REASONING_EFFORT = "minimal";
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
+
+    /** A {@code {name}} placeholder in {@code user.md}. */
+    private static final Pattern PLACEHOLDER = Pattern.compile("\\{([^{}]+)\\}");
 
     public static void main(String[] args) {
         LabsConfig labsConfig = LabsConfig.load();
@@ -150,11 +152,13 @@ public class S04E02 {
                     .map(Map::toString)
                     .collect(Collectors.joining("\n")));
 
-            List<Map<String, Object>> signing = new ArrayList<>();
+            // Keyed by slot: unique per point (validated), the batch key, and the signing call's label,
+            // so a deadline message names the same thing the transcript does.
+            Map<String, Map<String, Object>> signing = new LinkedHashMap<>();
             for (Map<String, String> point : points) {
                 Map<String, Object> sent = new LinkedHashMap<>();
                 schema.signFields().forEach(field -> sent.put(field, PointSchema.sendable(point.get(field))));
-                signing.add(sent);
+                signing.put(schema.slot(point), sent);
 
                 Map<String, Object> request = new LinkedHashMap<>();
                 request.put(protocol.actionField(), actions.sign());
@@ -163,25 +167,32 @@ public class S04E02 {
             }
             // A signature says which point it is for only by echoing its values, so it is matched to
             // the point whose sent values it echoes.
-            Collected<Integer> codes = collector.collect(
-                    IntStream.range(0, points.size()).boxed().collect(Collectors.toSet()),
+            Collected<String> codes = collector.collect(
+                    signing.keySet(),
                     node -> node.path(protocol.sourceField()).asString("").equals(actions.sign())
-                            ? IntStream.range(0, signing.size())
-                                    .filter(i -> Echo.matches(signing.get(i), node.path(protocol.echoField())))
-                                    .boxed()
+                            ? signing.entrySet().stream()
+                                    .filter(sent -> Echo.matches(sent.getValue(), node.path(protocol.echoField())))
+                                    .map(Map.Entry::getKey)
                                     .findFirst()
                             : Optional.empty(),
                     deadline);
             elapsed.note("signed " + codes.results().size() + " points", codes.unexpected());
 
             Map<String, Object> batch = new LinkedHashMap<>();
-            for (int i = 0; i < points.size(); i++) {
-                Map<String, String> point = points.get(i);
+            for (Map<String, String> point : points) {
+                String slot = schema.slot(point);
+                // Refused here, the earliest point it exists: sent on as "", it would come back as the
+                // config's rejection, naming the batch rather than the reply that lacked it.
+                String signature = codes.results().get(slot).path(protocol.signatureField()).asString("");
+                if (signature.isBlank()) {
+                    throw new IllegalStateException(
+                            "The signing result for " + slot + " carries no " + protocol.signatureField()
+                                    + ": " + codes.results().get(slot));
+                }
                 Map<String, Object> entry = new LinkedHashMap<>();
                 schema.entryFields().forEach(field -> entry.put(field, PointSchema.sendable(point.get(field))));
-                entry.put(protocol.signatureField(),
-                        codes.results().get(i).path(protocol.signatureField()).asString(""));
-                batch.put(schema.slot(point), entry);
+                entry.put(protocol.signatureField(), signature);
+                batch.put(slot, entry);
             }
             accepted(call.send(actions.config(), Map.of(
                     protocol.actionField(), actions.config(), protocol.batchField(), batch)));
@@ -205,13 +216,14 @@ public class S04E02 {
     /**
      * By name rather than by position, as in s01e04: four JSON documents are all strings, and two
      * swapped would give the model a well-formed wrong prompt that nothing downstream notices.
+     *
+     * <p>In one pass over the template. Replacing name by name would scan text already inserted, and
+     * a hub document that happened to contain {@code {jobname}} would get a job's JSON spliced into
+     * it — a collision the startup check cannot see, because it only reads the template.
      */
     private static String fill(String template, Map<String, String> values) {
-        String filled = template;
-        for (Map.Entry<String, String> value : values.entrySet()) {
-            filled = filled.replace("{" + value.getKey() + "}", value.getValue());
-        }
-        return filled;
+        return PLACEHOLDER.matcher(template).replaceAll(match ->
+                Matcher.quoteReplacement(values.getOrDefault(match.group(1), match.group())));
     }
 
     /**

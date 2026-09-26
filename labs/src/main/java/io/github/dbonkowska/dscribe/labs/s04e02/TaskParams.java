@@ -2,9 +2,11 @@ package io.github.dbonkowska.dscribe.labs.s04e02;
 
 import tools.jackson.core.JsonPointer;
 
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.regex.Pattern;
 import java.util.regex.PatternSyntaxException;
 
@@ -63,12 +65,34 @@ public record TaskParams(
 
         require(documentation, "documentation");
         jobs = nonEmpty(jobs, "jobs");
+        // Each document fills the placeholder that bears its name, and each job is collected once:
+        // a repeated name either overwrites a document in the prompt or collects a job twice.
+        Set<String> names = new HashSet<>();
+        for (String job : jobs) {
+            if (job.equals(documentation.strip())) {
+                throw new IllegalStateException(
+                        "jobs lists " + job + ", which is also the documentation's name: its result would"
+                                + " replace the documentation in user.md. Rename one in the lesson's"
+                                + " task.properties.");
+            }
+            if (!names.add(job)) {
+                throw new IllegalStateException(
+                        "jobs lists " + job + " twice: it would be queued twice and its second result"
+                                + " refused inside the window. Fix it in the lesson's task.properties.");
+            }
+        }
 
         if (protocol == null) {
             throw missing("protocol.actionField, protocol.paramField, ...");
         }
         require(protocol.actionField(), "protocol.actionField");
         require(protocol.paramField(), "protocol.paramField");
+        if (protocol.paramField().equals(protocol.actionField())) {
+            throw new IllegalStateException(
+                    "protocol.paramField is the same as protocol.actionField (" + protocol.actionField()
+                            + "): one request carries both, and one of the two values would be lost."
+                            + " Fix it in the lesson's task.properties.");
+        }
         require(protocol.codeField(), "protocol.codeField");
         require(protocol.sourceField(), "protocol.sourceField");
         require(protocol.echoField(), "protocol.echoField");

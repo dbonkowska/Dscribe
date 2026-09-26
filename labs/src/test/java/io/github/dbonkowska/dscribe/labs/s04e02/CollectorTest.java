@@ -89,8 +89,31 @@ class CollectorTest {
 
         assertTrue(thrown.getMessage().contains("[a]"), thrown::getMessage);
         assertFalse(thrown.getMessage().contains("b"), thrown::getMessage);
+        assertFalse(thrown.getMessage().contains("set aside"),
+                () -> "nothing was set aside, so nothing should be said about it: " + thrown.getMessage());
         // never sleeps past the deadline: the last wait is only what was left
         assertEquals(List.of(Duration.ofSeconds(1), Duration.ofSeconds(1), Duration.ofMillis(500)), slept);
+    }
+
+    /**
+     * A result that matched no key is usually the one the run was waiting for, keyed wrongly. The
+     * deadline message says so, so the reader looks at those before at the queue.
+     */
+    @Test
+    void saysAtTheDeadlineHowManyResultsWereSetAside() {
+        Instant[] now = {NOW};
+        Deque<HubResponse> replies = script(
+                ok("{\"state\":1,\"origin\":\"z\"}"),
+                ok("{\"state\":1,\"origin\":\"y\"}"));
+        Collector collector = new Collector(
+                () -> replies.isEmpty() ? ok("{\"state\":7}") : replies.removeFirst(),
+                "state", PENDING, Duration.ofSeconds(1), () -> now[0],
+                d -> now[0] = now[0].plus(d));
+
+        IllegalStateException thrown = assertThrows(IllegalStateException.class,
+                () -> collector.collect(Set.of("a"), BY_SOURCE, NOW.plusMillis(2500)));
+
+        assertTrue(thrown.getMessage().contains("2 results set aside"), thrown::getMessage);
     }
 
     /** A refusal is an answer, not a pending job: waiting on after it only spends the window. */
