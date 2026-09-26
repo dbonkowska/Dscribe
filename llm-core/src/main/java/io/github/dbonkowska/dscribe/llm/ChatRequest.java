@@ -13,6 +13,7 @@ import java.util.List;
  *
  * @param toolChoice {@code auto}, {@code none} or {@code required}. A plain string, because
  *                   naming one specific function needs an object shape and nothing wants it yet.
+ * @param reasoning  how long the model may think; absent leaves it to the provider's default
  */
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public record ChatRequest(
@@ -20,10 +21,17 @@ public record ChatRequest(
         List<Message> messages,
         @JsonProperty("response_format") ResponseFormat responseFormat,
         List<ToolSpec> tools,
-        @JsonProperty("tool_choice") String toolChoice) {
+        @JsonProperty("tool_choice") String toolChoice,
+        Reasoning reasoning) {
+
+    /** A request offering tools, thinking as long as the provider's default allows. */
+    public ChatRequest(
+            String model, List<Message> messages, ResponseFormat responseFormat, List<ToolSpec> tools, String toolChoice) {
+        this(model, messages, responseFormat, tools, toolChoice, null);
+    }
 
     /** A request with no tools in play — structured output, or plain text. */
     public ChatRequest(String model, List<Message> messages, ResponseFormat responseFormat) {
-        this(model, messages, responseFormat, null, null);
+        this(model, messages, responseFormat, null, null, null);
     }
 }

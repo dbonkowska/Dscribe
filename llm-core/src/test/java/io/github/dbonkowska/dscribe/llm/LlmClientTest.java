@@ -8,6 +8,7 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -59,6 +60,47 @@ class LlmClientTest {
                 .withTranscript((request, response) -> {});
 
         assertEquals("caller/pin", recording.model());
+    }
+
+    /**
+     * Both kinds of call carry the effort. A structured call that dropped it would still answer —
+     * only later than the caller budgeted for, which is the failure this setting exists to prevent.
+     */
+    @Test
+    void carriesTheReasoningEffortOnEveryKindOfRequest() {
+        LlmClient client = clientConfiguredWith(null).defaultModel("caller/pin").reasoningEffort("minimal");
+
+        assertEquals(Reasoning.effort("minimal"), client.structuredRequest(ANYTHING, null).reasoning());
+        assertEquals(Reasoning.effort("minimal"), client.toolRequest(ANYTHING, List.of(), "auto").reasoning());
+    }
+
+    @Test
+    void sendsNoReasoningUnlessAsked() {
+        LlmClient client = clientConfiguredWith(null).defaultModel("caller/pin");
+
+        assertNull(client.structuredRequest(ANYTHING, null).reasoning());
+        assertNull(client.toolRequest(ANYTHING, List.of(), "auto").reasoning());
+    }
+
+    /** A blank setting is absent, not an effort named "" that the provider would refuse. */
+    @Test
+    void treatsABlankEffortAsNoneAtAll() {
+        LlmClient client = clientConfiguredWith(null).defaultModel("caller/pin").reasoningEffort("  ");
+
+        assertNull(client.structuredRequest(ANYTHING, null).reasoning());
+    }
+
+    @Test
+    void keepsTheEffortThroughEveryCopy() {
+        // runners set the model, the effort and the transcript in whatever order reads best; a
+        // copy that forgot one would change the run without changing a line that mentions it
+        LlmClient client = clientConfiguredWith(null)
+                .reasoningEffort("minimal")
+                .defaultModel("caller/pin")
+                .withTranscript((request, response) -> {});
+
+        assertEquals(Reasoning.effort("minimal"), client.structuredRequest(ANYTHING, null).reasoning());
+        assertEquals("caller/pin", client.model());
     }
 
     /**

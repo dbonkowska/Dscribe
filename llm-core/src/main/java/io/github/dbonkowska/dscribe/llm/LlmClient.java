@@ -26,15 +26,17 @@ public class LlmClient implements ChatTransport {
     private final LlmConfig config;
     private final String model;
     private final Transcript transcript;
+    private final Reasoning reasoning;
 
     public LlmClient(LlmConfig config){
-        this(config, config.model(), Transcript.NONE);
+        this(config, config.model(), Transcript.NONE, null);
     }
 
-    private LlmClient(LlmConfig config, String model, Transcript transcript){
+    private LlmClient(LlmConfig config, String model, Transcript transcript, Reasoning reasoning){
         this.config = config;
         this.model = model;
         this.transcript = transcript;
+        this.reasoning = reasoning;
     }
 
     /**
@@ -47,12 +49,31 @@ public class LlmClient implements ChatTransport {
      * one counts as absent.
      */
     public LlmClient defaultModel(String model){
-        return new LlmClient(config, named(config.model()) ? config.model() : model, transcript);
+        return new LlmClient(config, named(config.model()) ? config.model() : model, transcript, reasoning);
     }
 
     /** A copy of this client recording every exchange it makes. */
     public LlmClient withTranscript(Transcript transcript){
-        return new LlmClient(config, model, transcript);
+        return new LlmClient(config, model, transcript, reasoning);
+    }
+
+    /**
+     * A copy of this client asking every call to reason at {@code effort} — for a caller with a
+     * deadline and a model whose reasoning cannot be switched off. A blank effort counts as none,
+     * leaving it to the provider's default.
+     */
+    public LlmClient reasoningEffort(String effort){
+        return new LlmClient(config, model, transcript, named(effort) ? Reasoning.effort(effort) : null);
+    }
+
+    /** What {@link #sendStructured} sends, built apart from the sending so it can be asserted. */
+    ChatRequest structuredRequest(List<Message> messages, ResponseFormat responseFormat) {
+        return new ChatRequest(model, messages, responseFormat, null, null, reasoning);
+    }
+
+    /** What {@link #send} sends, built apart from the sending so it can be asserted. */
+    ChatRequest toolRequest(List<Message> messages, List<ToolSpec> tools, String toolChoice) {
+        return new ChatRequest(model, messages, null, tools, toolChoice, reasoning);
     }
 
     public String model(){
@@ -60,8 +81,7 @@ public class LlmClient implements ChatTransport {
     }
 
     public <T> T sendStructured(List<Message> messages, ResponseFormat responseFormat, Class<T> type) {
-        String content = firstChoice(
-                exchange(new ChatRequest(model, messages, responseFormat)))
+        String content = firstChoice(exchange(structuredRequest(messages, responseFormat)))
                 .message()
                 .text();
 
@@ -70,7 +90,7 @@ public class LlmClient implements ChatTransport {
 
     @Override
     public ChatResponse.Choice send(List<Message> messages, List<ToolSpec> tools, String toolChoice) {
-        return firstChoice(exchange(new ChatRequest(model, messages, null, tools, toolChoice)));
+        return firstChoice(exchange(toolRequest(messages, tools, toolChoice)));
     }
 
     private static boolean named(String model) {

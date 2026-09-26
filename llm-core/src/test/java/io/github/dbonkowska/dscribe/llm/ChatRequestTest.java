@@ -73,6 +73,26 @@ class ChatRequestTest {
         assertFalse(json.has("tool_choice"), () -> "expected no tool_choice in: " + json);
     }
 
+    /**
+     * A model whose reasoning cannot be switched off thinks for as long as its provider's default
+     * says unless told otherwise — a mistyped key is ignored, and the call just takes longer.
+     */
+    @Test
+    void sendsTheReasoningEffortTheWayTheProviderSpellsIt() {
+        ChatRequest request = new ChatRequest("m", MESSAGES, null, null, null, Reasoning.effort("minimal"));
+
+        JsonNode json = json(request);
+
+        assertEquals("minimal", json.path("reasoning").path("effort").stringValue(), json::toString);
+    }
+
+    @Test
+    void omitsReasoningEntirelyWhenNoneIsSet() {
+        JsonNode json = json(new ChatRequest("m", MESSAGES, null));
+
+        assertFalse(json.has("reasoning"), () -> "expected no reasoning in: " + json);
+    }
+
     private static ToolSpec spec(String name) {
         return ToolSpec.function(name, "finds things", MAPPER.createObjectNode());
     }
