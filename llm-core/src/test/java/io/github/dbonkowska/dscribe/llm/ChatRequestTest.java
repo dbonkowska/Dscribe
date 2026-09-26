@@ -32,7 +32,7 @@ class ChatRequestTest {
 
     @Test
     void namesTheResponseFormatKeysTheWayTheProviderSpellsThem() {
-        ChatRequest request = new ChatRequest("m", MESSAGES, ResponseFormat.jsonSchema("r", SCHEMA));
+        ChatRequest request = new ChatRequest("m", MESSAGES, ResponseFormat.jsonSchema("r", SCHEMA), null, null, null);
 
         assertEquals("json_schema", request.responseFormat().type());
         assertEquals("r", request.responseFormat().jsonSchema().name());
@@ -46,7 +46,7 @@ class ChatRequestTest {
 
     @Test
     void omitsResponseFormatEntirelyWhenThereIsNone() {
-        JsonNode json = json(new ChatRequest("m", MESSAGES, null));
+        JsonNode json = json(new ChatRequest("m", MESSAGES, null, null, null, null));
 
         assertFalse(json.has("response_format"), () -> "expected no response_format in: " + json);
         assertEquals("m", json.get("model").stringValue());
@@ -55,7 +55,7 @@ class ChatRequestTest {
     @Test
     void offersEveryToolAlongsideTheChoiceOfWhetherToUseThem() {
         ChatRequest request = new ChatRequest(
-                "m", MESSAGES, null, List.of(spec("lookup"), spec("count")), "auto");
+                "m", MESSAGES, null, List.of(spec("lookup"), spec("count")), "auto", null);
 
         JsonNode json = json(request);
 
@@ -67,10 +67,30 @@ class ChatRequestTest {
     @Test
     void omitsToolKeysEntirelyWhenThereAreNoTools() {
         // a tools: null key is rejected rather than ignored, so absence has to be total
-        JsonNode json = json(new ChatRequest("m", MESSAGES, null));
+        JsonNode json = json(new ChatRequest("m", MESSAGES, null, null, null, null));
 
         assertFalse(json.has("tools"), () -> "expected no tools in: " + json);
         assertFalse(json.has("tool_choice"), () -> "expected no tool_choice in: " + json);
+    }
+
+    /**
+     * A model whose reasoning cannot be switched off thinks for as long as its provider's default
+     * says unless told otherwise — a mistyped key is ignored, and the call just takes longer.
+     */
+    @Test
+    void sendsTheReasoningEffortTheWayTheProviderSpellsIt() {
+        ChatRequest request = new ChatRequest("m", MESSAGES, null, null, null, Reasoning.effort("minimal"));
+
+        JsonNode json = json(request);
+
+        assertEquals("minimal", json.path("reasoning").path("effort").stringValue(), json::toString);
+    }
+
+    @Test
+    void omitsReasoningEntirelyWhenNoneIsSet() {
+        JsonNode json = json(new ChatRequest("m", MESSAGES, null, null, null, null));
+
+        assertFalse(json.has("reasoning"), () -> "expected no reasoning in: " + json);
     }
 
     private static ToolSpec spec(String name) {
