@@ -122,8 +122,66 @@ class ApiToolTest {
                 thrown::getMessage);
     }
 
+    /**
+     * The reset restores the seeded orders, so every order the model created is gone. The run sends
+     * it once at startup; the model never does.
+     */
+    @Test
+    void refusesTheResetWithoutSendingAnything(@TempDir Path root) {
+        Tool<ApiTool.Call> tool = tool(root);
+
+        IllegalArgumentException thrown = assertThrows(IllegalArgumentException.class,
+                () -> tool.handler().apply(new ApiTool.Call("wipe", "", "{}")));
+
+        assertEquals(List.of(), sent);
+        assertTrue(thrown.getMessage().contains("wipe") && thrown.getMessage().contains("startup"),
+                () -> "the model has to be told what was refused and that the run already did it: "
+                        + thrown.getMessage());
+    }
+
+    /**
+     * Decided by the tool before the parameters are read, so the refusal names the real reason. A
+     * bad-JSON refusal here would invite the model to fix the JSON and send the reset again.
+     */
+    @Test
+    void refusesTheResetBeforeReadingItsParameters(@TempDir Path root) {
+        Tool<ApiTool.Call> tool = tool(root);
+
+        IllegalArgumentException thrown = assertThrows(IllegalArgumentException.class,
+                () -> tool.handler().apply(new ApiTool.Call("wipe", "", "not json")));
+
+        assertEquals(List.of(), sent);
+        assertTrue(thrown.getMessage().contains("startup"),
+                () -> "refused as the reset, not as bad JSON: " + thrown.getMessage());
+    }
+
+    /**
+     * Matched stripped and case-folded, the way s04e03's environment matched its reset. Whether this
+     * one folds is unprobed; refusing a spelling it would have rejected anyway costs nothing, and
+     * letting through one it accepts would wipe the run.
+     */
+    @ParameterizedTest
+    @ValueSource(strings = {"Wipe", "WIPE", " wipe", "wipe ", "\twipe\n"})
+    void refusesTheResetUnderAnySpelling(String spelling, @TempDir Path root) {
+        Tool<ApiTool.Call> tool = tool(root);
+
+        IllegalArgumentException thrown = assertThrows(IllegalArgumentException.class,
+                () -> tool.handler().apply(new ApiTool.Call(spelling, "", "{}")));
+
+        assertEquals(List.of(), sent);
+        assertTrue(thrown.getMessage().contains("startup"), thrown::getMessage);
+    }
+
+    /** Folding is for matching the reset, not a licence to refuse names that merely contain it. */
+    @Test
+    void sendsAToolThatOnlyContainsTheResetsName(@TempDir Path root) {
+        tool(root).handler().apply(new ApiTool.Call("wipeLogs", "", "{}"));
+
+        assertEquals(1, sent.size());
+    }
+
     private Tool<ApiTool.Call> tool(Path root) {
-        return new ApiTool(hub(root)).tool("call", "calls one tool");
+        return new ApiTool(hub(root), "wipe").tool("call", "calls one tool");
     }
 
     private ResilientHub hub(Path root) {

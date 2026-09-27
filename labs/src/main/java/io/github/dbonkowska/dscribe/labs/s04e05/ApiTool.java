@@ -43,9 +43,11 @@ final class ApiTool {
     private static final String ACTION = "action";
 
     private final ResilientHub hub;
+    private final String resetTool;
 
-    ApiTool(ResilientHub hub) {
+    ApiTool(ResilientHub hub, String resetTool) {
         this.hub = hub;
+        this.resetTool = resetTool;
     }
 
     /** Name and description come from the lesson bundle: they are prompt surface. */
@@ -58,6 +60,16 @@ final class ApiTool {
      * one of them is something to correct and call again.
      */
     private ToolOutput send(String tool, String action, String params) {
+        // decided by the tool alone, before the parameters are read: a bad-JSON refusal here would
+        // invite the model to fix the JSON and send the reset again. Matched stripped and
+        // case-folded, as s04e03's environment matched its own reset; whether this one folds is
+        // unprobed, and refusing a spelling it would have rejected anyway costs nothing.
+        if (resetTool.equalsIgnoreCase(tool.strip())) {
+            throw new IllegalArgumentException(
+                    "The tool " + tool + " is not available to you. The run already sent it once, at"
+                            + " startup, and sending it again would delete every order created since."
+                            + " Nothing was sent. To undo an order you created, delete that order.");
+        }
         ObjectNode answer = parse(params);
 
         // checked before the merge, never after: merging first would overwrite the model's key
