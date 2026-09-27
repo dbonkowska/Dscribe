@@ -47,8 +47,12 @@ record Extraction(List<CityNeeds> cities, List<Person> people, List<GoodForm> go
     /**
      * What the schema cannot hold: a place or a good given twice, a trade log good left without a
      * singular, a count that is not a count. Returned rather than thrown, so the run can report
-     * these with the tree's own problems in one refusal. A place given no needs is not one of
-     * them: it gets no file, and a link to it is caught by the tree's check.
+     * these with the tree's own problems in one refusal.
+     *
+     * <p>A place left out of the answer altogether is not one of them — the notes do not promise
+     * that every place in the trade log needs something. It gets no file, and the tree's check
+     * catches that only when something links to it: a place with a person or a good for sale. A
+     * place with neither, left out, is not refused anywhere.
      */
     List<String> problems(List<String> tradedGoods) {
         List<String> problems = new ArrayList<>();

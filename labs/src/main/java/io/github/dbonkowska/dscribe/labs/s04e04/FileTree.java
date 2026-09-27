@@ -60,6 +60,8 @@ final class FileTree {
         Map<String, Set<String>> sellers = new LinkedHashMap<>();
         for (TradeLog.Sale sale : tradeLog.sales()) {
             String good = singular.get(sale.good());
+            // Skipped only because Extraction.problems() reports the missing singular in the same
+            // refusal, so a batch with this gap is never sent.
             if (good != null) {
                 sellers.computeIfAbsent(good, key -> new LinkedHashSet<>()).add(sale.seller());
             }
