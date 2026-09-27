@@ -47,16 +47,22 @@ final class ApiTool {
     /** The parameter a delete names its order by: protocol vocabulary, as the envelope keys are. */
     private static final String ID = "id";
 
+    /** How a query reply reports its size and its cap: protocol vocabulary, seen in the probe. */
+    private static final String COUNT = "count";
+    private static final String LIMIT = "limit";
+
     private final ResilientHub hub;
     private final String resetTool;
     private final TaskParams.Orders orders;
     private final Set<String> seeded;
+    private final String databaseTool;
 
-    ApiTool(ResilientHub hub, String resetTool, TaskParams.Orders orders, Set<String> seeded) {
+    ApiTool(ResilientHub hub, String resetTool, TaskParams.Orders orders, Set<String> seeded, String databaseTool) {
         this.hub = hub;
         this.resetTool = resetTool;
         this.orders = orders;
         this.seeded = Set.copyOf(seeded);
+        this.databaseTool = databaseTool;
     }
 
     /** Name and description come from the lesson bundle: they are prompt surface. */
@@ -106,7 +112,32 @@ final class ApiTool {
             answer.put(ACTION, action);
         }
 
-        return ToolOutput.of(hub.call(tool + (hasAction ? " · " + action : ""), answer));
+        String reply = hub.call(tool + (hasAction ? " · " + action : ""), answer);
+        return ToolOutput.of(databaseTool.equalsIgnoreCase(tool.strip()) ? noteIfCapped(reply) : reply);
+    }
+
+    /**
+     * A query reply is capped at a row limit, and a capped reply looks exactly like a complete one.
+     * Where it came back at the cap, the model is told so — advice, not a refusal: a query that asked
+     * for exactly that many rows is legitimate. Any reply that does not carry both numbers passes
+     * through untouched, since it tells nothing about a cap.
+     */
+    private static String noteIfCapped(String reply) {
+        JsonNode node;
+        try {
+            node = MAPPER.readTree(reply);
+        } catch (JacksonException e) {
+            return reply;
+        }
+        JsonNode count = node.get(COUNT);
+        JsonNode limit = node.get(LIMIT);
+        if (count == null || limit == null || !count.isNumber() || !limit.isNumber()
+                || count.asLong() != limit.asLong()) {
+            return reply;
+        }
+        return reply + "\n\nNote from the run: this reply holds " + count.asLong() + " rows, exactly its"
+                + " limit, so the result may be cut off. Narrow the query, or page through it with"
+                + " LIMIT and OFFSET, until a reply comes back under the limit.";
     }
 
     /**

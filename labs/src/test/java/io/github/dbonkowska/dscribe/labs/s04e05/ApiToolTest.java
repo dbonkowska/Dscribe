@@ -44,6 +44,9 @@ class ApiToolTest {
     /** What the fake hub was handed, in order. */
     private final List<Sent> sent = new ArrayList<>();
 
+    /** What the fake hub answers; when unset, a reply numbered by how many sends it has seen. */
+    private String reply;
+
     /** Parameters keep their JSON types: a number sent as a string is a different request. */
     @Test
     void sendsTheParametersWithToolAndActionAsTheAnswer(@TempDir Path root) {
@@ -244,15 +247,68 @@ class ApiToolTest {
                 () -> "refused as a seeded order, not as a reserved key: " + thrown.getMessage());
     }
 
+    /**
+     * A query reply is capped, and a capped reply looks like a complete one. When it came back
+     * exactly at the cap, the model is told it may be looking at part of the result.
+     */
+    @Test
+    void notesAQueryReplyThatReachedItsLimit(@TempDir Path root) {
+        reply = "{\"count\":3,\"limit\":3,\"rows\":[1,2,3]}";
+
+        Object result = tool(root).handler().apply(new ApiTool.Call("db", "", "{\"query\":\"q\"}")).result();
+
+        String text = (String) result;
+        assertTrue(text.startsWith(reply), () -> "the reply itself comes first, untouched: " + text);
+        assertTrue(text.length() > reply.length() && text.contains("3")
+                        && text.contains("LIMIT") && text.contains("OFFSET"),
+                () -> "the note has to name the limit and how to page: " + text);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "{\"count\":2,\"limit\":3,\"rows\":[1,2]}",
+            "{\"tables\":[\"t\"]}",
+            "{\"count\":\"3\",\"limit\":3}",
+            "not json at all"})
+    void handsBackAQueryReplyBelowItsLimitWordForWord(String body, @TempDir Path root) {
+        reply = body;
+
+        Object result = tool(root).handler().apply(new ApiTool.Call("db", "", "{\"query\":\"q\"}")).result();
+
+        assertEquals(body, result);
+    }
+
+    /** Only the query tool is capped this way; another tool's count and limit mean something else. */
+    @Test
+    void handsBackAnotherToolsReplyWordForWord(@TempDir Path root) {
+        reply = "{\"count\":3,\"limit\":3}";
+
+        Object result = tool(root).handler().apply(new ApiTool.Call("store", "list", "{}")).result();
+
+        assertEquals(reply, result);
+    }
+
+    /** Matched like every other name here: the same query tool, spelled differently. */
+    @Test
+    void notesAQueryReplyUnderAnySpellingOfTheTool(@TempDir Path root) {
+        reply = "{\"count\":3,\"limit\":3}";
+
+        Object result = tool(root).handler().apply(new ApiTool.Call(" DB ", "", "{\"query\":\"q\"}")).result();
+
+        assertTrue(((String) result).contains("LIMIT"), () -> "noted: " + result);
+    }
+
     private Tool<ApiTool.Call> tool(Path root) {
-        return new ApiTool(hub(root), "wipe", new TaskParams.Orders("store", "list", "remove", "items"), Set.of("a1"))
+        return new ApiTool(
+                hub(root), "wipe", new TaskParams.Orders("store", "list", "remove", "items"), Set.of("a1"), "db")
                 .tool("call", "calls one tool");
     }
 
     private ResilientHub hub(Path root) {
         HubSend sender = (label, taskName, answer) -> {
             sent.add(new Sent(label, MAPPER.valueToTree(answer)));
-            return new HubResponse(200, TestHeaders.of(Map.of()), "{\"n\":" + sent.size() + "}");
+            String body = reply != null ? reply : "{\"n\":" + sent.size() + "}";
+            return new HubResponse(200, TestHeaders.of(Map.of()), body);
         };
 
         return new ResilientHub(
