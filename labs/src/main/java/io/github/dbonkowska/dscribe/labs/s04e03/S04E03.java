@@ -6,6 +6,7 @@ import io.github.dbonkowska.dscribe.conversation.Role;
 import io.github.dbonkowska.dscribe.labs.config.LabsConfig;
 import io.github.dbonkowska.dscribe.labs.data.RunTranscript;
 import io.github.dbonkowska.dscribe.labs.hub.HubClient;
+import io.github.dbonkowska.dscribe.labs.hub.HubResponse;
 import io.github.dbonkowska.dscribe.labs.hub.RateLimitHeaders;
 import io.github.dbonkowska.dscribe.labs.hub.ResilientHub;
 import io.github.dbonkowska.dscribe.labs.hub.RetryPolicy;
@@ -19,7 +20,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -33,8 +33,8 @@ import java.util.regex.Pattern;
  * both, and a second count beside it would only disagree.
  *
  * <p>Code holds one thing back. The environment can be reset, which restores the budget but wipes
- * every unit and moves the target, so the run sends it once at startup and the tool refuses it to
- * the model. See {@link ActionTool}.
+ * the environment's state, so the run sends it once at startup and the tool refuses it to the
+ * model. See {@link ActionTool}.
  */
 public class S04E03 {
 
@@ -47,8 +47,8 @@ public class S04E03 {
     private static final String MODEL = "google/gemini-3.8-flash";
 
     /**
-     * Counts model round-trips. Help, a few free reads, a handful of units, their moves and the
-     * inspections fit well inside it, so this is a backstop rather than the expected exit.
+     * Counts model round-trips. Help, a few free reads and a bounded run of paid actions fit well
+     * inside it, so this is a backstop rather than the expected exit.
      */
     private static final int MAX_ITERATIONS = 60;
 
@@ -76,7 +76,6 @@ public class S04E03 {
         settings.put("hub base url", labsConfig.hub().baseUrl());
         settings.put("max iterations", String.valueOf(MAX_ITERATIONS));
         settings.put("max wait", MAX_WAIT.toString());
-        settings.put("refused actions", String.join(", ", task.refusedActions()));
         settings.put("environment reset", task.resetAction() + ", sent by the run at startup");
 
         try (RunTranscript transcript = RunTranscript.open(
@@ -99,14 +98,23 @@ public class S04E03 {
             // The reset, once, at startup and before the model sees anything. Sent here rather than
             // through the tool, which refuses it. Nothing resets in a finally — deliberately:
             // nothing else shares this environment, the state a failed run ends in is the evidence
-            // for how it failed, and the next run's reset clears it anyway. The reply is printed
-            // because call() hands a refusal back as a body rather than throwing.
-            String reset = resilient.call(
-                    "reset · " + task.resetAction(), Map.of("action", task.resetAction()));
-            System.out.println("Reset: " + reset);
+            // for how it failed, and the next run's reset clears it anyway.
+            //
+            // Sent without retries, and its status checked: every model call after this assumes a
+            // clean environment, so a refused reset (the hub answers an unknown action or a wrong
+            // task with a 4xx) ends the run here, before a token is spent. A rerun costs nothing.
+            HubResponse reset = hub.send(
+                    "reset · " + task.resetAction(), task.verifyTask(), Map.of("action", task.resetAction()));
+            if (reset.status() / 100 != 2) {
+                throw new IllegalStateException(
+                        "The startup reset was refused with status " + reset.status() + ": " + reset.body()
+                                + ". The environment is not clean, so the run stops before the model"
+                                + " is called. Check verifyTask and resetAction in the lesson's"
+                                + " task.properties.");
+            }
 
             Toolbox tools = new Toolbox(List.of(
-                    new ActionTool(resilient, Set.copyOf(task.refusedActions()))
+                    new ActionTool(resilient, task.resetAction())
                             .tool(task.action().name(), task.action().description())));
 
             List<Message> seed = List.of(new Message(Role.system, system));

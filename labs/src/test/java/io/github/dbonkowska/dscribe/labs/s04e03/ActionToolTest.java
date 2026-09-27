@@ -10,6 +10,8 @@ import io.github.dbonkowska.dscribe.labs.hub.RetryPolicy;
 import io.github.dbonkowska.dscribe.tool.Tool;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 
@@ -18,7 +20,6 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -128,7 +129,8 @@ class ActionToolTest {
                 () -> tool.handler().apply(new ActionTool.Call("list", "{\"action\":\"wipe\"}")));
 
         assertEquals(List.of(), sent);
-        assertTrue(thrown.getMessage().contains("action"), thrown::getMessage);
+        assertTrue(thrown.getMessage().contains("must not contain"),
+                () -> "refused as a smuggled key, not as the reset: " + thrown.getMessage());
     }
 
     /**
@@ -164,8 +166,33 @@ class ActionToolTest {
                 () -> "refused as a reserved action, not as bad JSON: " + thrown.getMessage());
     }
 
+    /**
+     * The environment strips and case-folds action names — probed on the real one, which ran its
+     * reset for {@code Reset}, {@code " reset"} and {@code RESET} alike. An exact match would let
+     * every one of these wipe the run.
+     */
+    @ParameterizedTest
+    @ValueSource(strings = {"Wipe", "WIPE", " wipe", "wipe ", "\twipe\n"})
+    void refusesTheResetUnderAnySpellingTheEnvironmentAccepts(String spelling, @TempDir Path root) {
+        Tool<ActionTool.Call> tool = tool(root);
+
+        IllegalArgumentException thrown = assertThrows(IllegalArgumentException.class,
+                () -> tool.handler().apply(new ActionTool.Call(spelling, "{}")));
+
+        assertEquals(List.of(), sent);
+        assertTrue(thrown.getMessage().contains("startup"), thrown::getMessage);
+    }
+
+    /** Folding is for matching the reset, not a licence to refuse names that merely contain it. */
+    @Test
+    void sendsAnActionThatOnlyContainsTheResetsName(@TempDir Path root) {
+        tool(root).handler().apply(new ActionTool.Call("wipeLogs", "{}"));
+
+        assertEquals(1, sent.size());
+    }
+
     private Tool<ActionTool.Call> tool(Path root) {
-        return new ActionTool(hub(root), Set.of("wipe")).tool("act", "does one action");
+        return new ActionTool(hub(root), "wipe").tool("act", "does one action");
     }
 
     private ResilientHub hub(Path root) {

@@ -1,6 +1,5 @@
 package io.github.dbonkowska.dscribe.labs.s04e03;
 
-import java.util.List;
 import java.util.regex.Pattern;
 import java.util.regex.PatternSyntaxException;
 
@@ -8,23 +7,21 @@ import java.util.regex.PatternSyntaxException;
  * Bound from {@code {labs.lessons.dir}/s04e03/task.properties}.
  *
  * <p>The code knows only that there is one endpoint taking an action and its parameters, a pattern
- * for the reply that carries the result, and which actions the model may not send. Which actions
+ * for the reply that carries the result, and which action the model may not send. Which actions
  * exist is not here at all: the endpoint describes itself, and the model learns it from that reply.
  *
- * @param verifyTask     the task name the hub expects
- * @param flagPattern    a regex matching a reply that carries the result
- * @param action         the tool that sends one action
- * @param resetAction    the action the run sends once at startup to start from a clean environment.
- *                       It has to be one of {@code refusedActions}, so the model cannot send it too
- * @param refusedActions actions the tool refuses before sending. A reset mid-run would wipe
- *                       everything the model has learned about the environment
+ * @param verifyTask  the task name the hub expects
+ * @param flagPattern a regex matching a reply that carries the result
+ * @param action      the tool that sends one action
+ * @param resetAction the action the run sends once at startup to start from a clean environment, and
+ *                    the one action the tool refuses the model: mid-run it would wipe everything
+ *                    done so far. Stored stripped
  */
 public record TaskParams(
         String verifyTask,
         String flagPattern,
         ToolPrompt action,
-        String resetAction,
-        List<String> refusedActions) {
+        String resetAction) {
 
     /** Each check refuses at the binding boundary, before the transcript is even open. */
     public TaskParams {
@@ -34,26 +31,7 @@ public record TaskParams(
         requirePrompt(action, "action");
         require(resetAction, "resetAction");
 
-        // an empty list lets the model send the reset, and the reset is why the list exists
-        if (refusedActions == null || refusedActions.isEmpty()) {
-            throw new IllegalStateException(
-                    "refusedActions must name at least the reset action, or the model can wipe the"
-                            + " environment mid-run. Set refusedActions.1=<action> in the lesson's"
-                            + " task.properties.");
-        }
-        for (String refused : refusedActions) {
-            require(refused, "refusedActions");
-        }
-        refusedActions = refusedActions.stream().map(String::strip).toList();
         resetAction = resetAction.strip();
-
-        // otherwise the model could send the run's own reset under a name the list never mentions
-        if (!refusedActions.contains(resetAction)) {
-            throw new IllegalStateException(
-                    "resetAction " + resetAction + " is not one of refusedActions " + refusedActions
-                            + ". The run's reset has to be one the model is refused. Add it to"
-                            + " refusedActions, or fix resetAction, in the lesson's task.properties.");
-        }
     }
 
     /**

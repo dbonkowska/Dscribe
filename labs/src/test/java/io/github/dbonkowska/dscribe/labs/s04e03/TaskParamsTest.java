@@ -5,7 +5,6 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import tools.jackson.dataformat.javaprop.JavaPropsMapper;
 
-import java.util.List;
 import java.util.stream.Collectors;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -17,8 +16,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * rather than failing, and would fail later and further from the file: a missing task name on the
  * first action, a missing flag pattern after the result was already earned.
  *
- * <p>The reset keys matter more than most: the reset wipes everything the model has learned about
- * the environment, so the one the run sends has to be one the model is refused.
+ * <p>The reset key matters more than most: the run sends that action once at startup and the
+ * model is refused it, so a missing one leaves the model free to wipe its own progress.
  *
  * <p>Values here are invented: nothing in this file is supplied by the exercise.
  */
@@ -31,7 +30,6 @@ class TaskParamsTest {
             action.name=act
             action.description=does one action
             resetAction=wipe
-            refusedActions.1=wipe
             """;
 
     @Test
@@ -43,7 +41,6 @@ class TaskParamsTest {
         assertEquals("act", params.action().name());
         assertEquals("does one action", params.action().description());
         assertEquals("wipe", params.resetAction());
-        assertEquals(List.of("wipe"), params.refusedActions());
     }
 
     @ParameterizedTest
@@ -92,49 +89,13 @@ class TaskParamsTest {
                 () -> "it has to say how properties files mangle patterns: " + thrown.getMessage());
     }
 
-    /** The list exists to keep the reset away from the model; an empty one is a bundle that forgot it. */
+    /** Stored stripped: a padded name would be sent at startup with its padding. */
     @Test
-    void refusesAFileWithNoRefusedActions() {
-        String props = COMPLETE.replace("refusedActions.1=wipe\n", "");
-
-        RuntimeException thrown = assertThrows(RuntimeException.class,
-                () -> new JavaPropsMapper().readValue(props, TaskParams.class));
-
-        assertTrue(thrown.getMessage().contains("refusedActions"), thrown::getMessage);
-    }
-
-    @Test
-    void refusesABlankRefusedAction() {
-        String props = COMPLETE.replace("refusedActions.1=wipe", "refusedActions.1=wipe\nrefusedActions.2=   ");
-
-        RuntimeException thrown = assertThrows(RuntimeException.class,
-                () -> new JavaPropsMapper().readValue(props, TaskParams.class));
-
-        assertTrue(thrown.getMessage().contains("refusedActions"), thrown::getMessage);
-    }
-
-    /** Compared and stored stripped: a padded entry would otherwise refuse nothing the model sends. */
-    @Test
-    void storesARefusedActionStripped() {
-        String props = COMPLETE.replace("refusedActions.1=wipe", "refusedActions.1= wipe ");
+    void storesTheResetActionStripped() {
+        String props = COMPLETE.replace("resetAction=wipe", "resetAction= wipe ");
 
         TaskParams params = new JavaPropsMapper().readValue(props, TaskParams.class);
 
-        assertEquals(List.of("wipe"), params.refusedActions());
-    }
-
-    /**
-     * The run's own reset has to be one the model is refused. Otherwise the model could send the
-     * same wipe under the name the run uses, which the list never mentions.
-     */
-    @Test
-    void refusesAResetActionTheModelIsNotRefused() {
-        String props = COMPLETE.replace("resetAction=wipe", "resetAction=clear");
-
-        RuntimeException thrown = assertThrows(RuntimeException.class,
-                () -> new JavaPropsMapper().readValue(props, TaskParams.class));
-
-        assertTrue(thrown.getMessage().contains("resetAction") && thrown.getMessage().contains("refusedActions"),
-                () -> "it has to name both keys, since either may be the one to fix: " + thrown.getMessage());
+        assertEquals("wipe", params.resetAction());
     }
 }

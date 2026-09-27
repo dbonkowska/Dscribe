@@ -8,16 +8,14 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.node.ObjectNode;
 
-import java.util.Set;
-
 /**
  * Hands the model an endpoint it learns about at run time: it names an action and writes the
  * parameters, this sends them to verify as the answer, and whatever comes back goes to the model
  * verbatim.
  *
  * <p>Copied from s04e01's tool rather than imported: a type from a finished lesson would freeze it.
- * The page guard is gone, since nothing here is a page. In its place is a list of actions the model
- * may not send at all. The action is otherwise a free string and the schema carries no
+ * The page guard is gone, since nothing here is a page. In its place is the one action the model
+ * may not send at all: the reset. The action is otherwise a free string and the schema carries no
  * {@code enum}: the endpoint's own help is the only account of what exists. The parameters are one
  * string of JSON, which keeps {@code strict = true} intact where a schema accepting arbitrary
  * objects would not.
@@ -47,11 +45,11 @@ final class ActionTool {
     private static final String ACTION = "action";
 
     private final ResilientHub hub;
-    private final Set<String> refusedActions;
+    private final String resetAction;
 
-    ActionTool(ResilientHub hub, Set<String> refusedActions) {
+    ActionTool(ResilientHub hub, String resetAction) {
         this.hub = hub;
-        this.refusedActions = refusedActions;
+        this.resetAction = resetAction;
     }
 
     /** Name and description come from the lesson bundle: they are prompt surface. */
@@ -65,8 +63,10 @@ final class ActionTool {
      */
     private ToolOutput send(String action, String params) {
         // decided by the action alone, before the parameters are read: a bad-JSON refusal here would
-        // invite the model to fix the JSON and send the reset again
-        if (refusedActions.contains(action)) {
+        // invite the model to fix the JSON and send the reset again. Matched the way the environment
+        // matches, stripped and case-folded: it ran its reset for "Reset", " reset" and "RESET"
+        // alike (probed 2026-09-27), so an exact match would let each of those through.
+        if (resetAction.equalsIgnoreCase(action.strip())) {
             throw new IllegalArgumentException(
                     "The action " + action + " is not available to you. The run already sent it once, at"
                             + " startup, and sending it again would wipe everything done since. Nothing"
