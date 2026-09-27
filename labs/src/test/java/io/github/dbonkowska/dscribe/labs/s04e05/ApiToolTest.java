@@ -20,6 +20,7 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -180,8 +181,72 @@ class ApiToolTest {
         assertEquals(1, sent.size());
     }
 
+    /**
+     * The orders that were there before the run are left alone — decided in design. The model may
+     * still delete its own, which is how it recovers from an order it filled wrongly.
+     */
+    @Test
+    void refusesDeletingASeededOrderWithoutSendingAnything(@TempDir Path root) {
+        Tool<ApiTool.Call> tool = tool(root);
+
+        IllegalArgumentException thrown = assertThrows(IllegalArgumentException.class,
+                () -> tool.handler().apply(new ApiTool.Call("store", "remove", "{\"id\":\"a1\"}")));
+
+        assertEquals(List.of(), sent);
+        assertTrue(thrown.getMessage().contains("a1"), thrown::getMessage);
+    }
+
+    /** Padding on the id, or a tool and action spelled differently, is the same delete. */
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "store|remove|{\"id\":\" a1 \"}",
+            "STORE|Remove|{\"id\":\"a1\"}",
+            " store |\tremove\n|{\"id\":\"a1\"}"})
+    void refusesDeletingASeededOrderUnderAnySpelling(String call, @TempDir Path root) {
+        String[] parts = call.split("\\|", 3);
+        Tool<ApiTool.Call> tool = tool(root);
+
+        assertThrows(IllegalArgumentException.class,
+                () -> tool.handler().apply(new ApiTool.Call(parts[0], parts[1], parts[2])));
+
+        assertEquals(List.of(), sent);
+    }
+
+    @Test
+    void sendsADeleteOfAnOrderTheModelCreated(@TempDir Path root) {
+        tool(root).handler().apply(new ApiTool.Call("store", "remove", "{\"id\":\"zz\"}"));
+
+        assertEquals(1, sent.size());
+    }
+
+    /** Reading a seeded order is harmless; only the delete is guarded. */
+    @Test
+    void sendsAReadOfASeededOrder(@TempDir Path root) {
+        tool(root).handler().apply(new ApiTool.Call("store", "list", "{\"id\":\"a1\"}"));
+
+        assertEquals(1, sent.size());
+    }
+
+    /**
+     * No fix to the call makes a seeded delete acceptable, so it is refused before the reserved-key
+     * check, which a corrected call would pass. The other way round, the model removes the key and
+     * sends the same delete.
+     */
+    @Test
+    void refusesASeededDeleteBeforeTheReservedKeys(@TempDir Path root) {
+        Tool<ApiTool.Call> tool = tool(root);
+
+        IllegalArgumentException thrown = assertThrows(IllegalArgumentException.class,
+                () -> tool.handler().apply(new ApiTool.Call("store", "remove", "{\"id\":\"a1\",\"action\":\"x\"}")));
+
+        assertEquals(List.of(), sent);
+        assertTrue(thrown.getMessage().contains("a1") && !thrown.getMessage().contains("must not contain"),
+                () -> "refused as a seeded order, not as a reserved key: " + thrown.getMessage());
+    }
+
     private Tool<ApiTool.Call> tool(Path root) {
-        return new ApiTool(hub(root), "wipe").tool("call", "calls one tool");
+        return new ApiTool(hub(root), "wipe", new TaskParams.Orders("store", "list", "remove", "items"), Set.of("a1"))
+                .tool("call", "calls one tool");
     }
 
     private ResilientHub hub(Path root) {

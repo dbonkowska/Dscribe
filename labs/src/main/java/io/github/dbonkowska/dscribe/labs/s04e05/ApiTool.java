@@ -8,6 +8,8 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.node.ObjectNode;
 
+import java.util.Set;
+
 /**
  * Hands the model an endpoint it learns about at run time: it names a tool, optionally an action,
  * and writes the parameters; this sends them to verify as the answer, and whatever comes back goes
@@ -42,12 +44,19 @@ final class ApiTool {
     private static final String TOOL = "tool";
     private static final String ACTION = "action";
 
+    /** The parameter a delete names its order by: protocol vocabulary, as the envelope keys are. */
+    private static final String ID = "id";
+
     private final ResilientHub hub;
     private final String resetTool;
+    private final TaskParams.Orders orders;
+    private final Set<String> seeded;
 
-    ApiTool(ResilientHub hub, String resetTool) {
+    ApiTool(ResilientHub hub, String resetTool, TaskParams.Orders orders, Set<String> seeded) {
         this.hub = hub;
         this.resetTool = resetTool;
+        this.orders = orders;
+        this.seeded = Set.copyOf(seeded);
     }
 
     /** Name and description come from the lesson bundle: they are prompt surface. */
@@ -72,6 +81,15 @@ final class ApiTool {
         }
         ObjectNode answer = parse(params);
 
+        // before the reserved keys: no fix to the call makes this delete acceptable, and a
+        // reserved-key refusal first would have the model remove the key and send the same delete
+        if (isSeededDelete(tool, action, answer)) {
+            throw new IllegalArgumentException(
+                    "The order " + answer.get(ID).asString().strip() + " existed before this run and is"
+                            + " left in place: it may not be deleted. Nothing was sent. Only orders you"
+                            + " created can be deleted.");
+        }
+
         // checked before the merge, never after: merging first would overwrite the model's key
         // silently, and whatever it meant by it would go unrefused and unrecorded
         for (String reserved : new String[] {TOOL, ACTION}) {
@@ -89,6 +107,21 @@ final class ApiTool {
         }
 
         return ToolOutput.of(hub.call(tool + (hasAction ? " · " + action : ""), answer));
+    }
+
+    /**
+     * Tool and action are matched stripped and case-folded, like the reset, and the id stripped: a
+     * padded or recased delete is the same delete, and refusing one the hub would reject anyway
+     * costs nothing.
+     */
+    private boolean isSeededDelete(String tool, String action, ObjectNode answer) {
+        if (!orders.tool().equalsIgnoreCase(tool.strip())
+                || action == null
+                || !orders.delete().equalsIgnoreCase(action.strip())) {
+            return false;
+        }
+        JsonNode id = answer.get(ID);
+        return id != null && id.isValueNode() && seeded.contains(id.asString().strip());
     }
 
     /**
