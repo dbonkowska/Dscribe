@@ -87,13 +87,24 @@ final class ApiTool {
         }
         ObjectNode answer = parse(params);
 
-        // before the reserved keys: no fix to the call makes this delete acceptable, and a
-        // reserved-key refusal first would have the model remove the key and send the same delete
-        if (isSeededDelete(tool, action, answer)) {
-            throw new IllegalArgumentException(
-                    "The order " + answer.get(ID).asString().strip() + " existed before this run and is"
-                            + " left in place: it may not be deleted. Nothing was sent. Only orders you"
-                            + " created can be deleted.");
+        // After the parse, because it needs the parsed id; before the reserved keys, because no fix
+        // to the call makes a seeded delete acceptable, and a reserved-key refusal first would have
+        // the model remove the key and send the same delete.
+        if (isDelete(tool, action)) {
+            JsonNode id = answer.get(ID);
+            // By form, before the seeded check: a list or an object would slip past a check that
+            // compares one value, and a delete names one order anyway.
+            if (id != null && !id.isValueNode()) {
+                throw new IllegalArgumentException(
+                        "A delete takes one order id, not " + id.getNodeType() + ". Nothing was sent."
+                                + " Delete one order per call.");
+            }
+            if (id != null && seeded.contains(id.asString().strip())) {
+                throw new IllegalArgumentException(
+                        "The order " + id.asString().strip() + " existed before this run and is left in"
+                                + " place: it may not be deleted. Nothing was sent. Only orders you created"
+                                + " can be deleted.");
+            }
         }
 
         // checked before the merge, never after: merging first would overwrite the model's key
@@ -141,18 +152,14 @@ final class ApiTool {
     }
 
     /**
-     * Tool and action are matched stripped and case-folded, like the reset, and the id stripped: a
-     * padded or recased delete is the same delete, and refusing one the hub would reject anyway
-     * costs nothing.
+     * Tool and action are matched stripped and case-folded, like the reset, and the id is compared
+     * stripped: a padded or recased delete is the same delete, and refusing one the hub would reject
+     * anyway costs nothing.
      */
-    private boolean isSeededDelete(String tool, String action, ObjectNode answer) {
-        if (!orders.tool().equalsIgnoreCase(tool.strip())
-                || action == null
-                || !orders.delete().equalsIgnoreCase(action.strip())) {
-            return false;
-        }
-        JsonNode id = answer.get(ID);
-        return id != null && id.isValueNode() && seeded.contains(id.asString().strip());
+    private boolean isDelete(String tool, String action) {
+        return orders.tool().equalsIgnoreCase(tool.strip())
+                && action != null
+                && orders.delete().equalsIgnoreCase(action.strip());
     }
 
     /**

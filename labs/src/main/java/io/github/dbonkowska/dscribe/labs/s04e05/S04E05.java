@@ -192,9 +192,12 @@ public class S04E05 {
         }
     }
 
-    /** A reply the run can go on from: a 200 with a JSON body. Anything else ends the run here. */
+    /**
+     * A reply the run can go on from: a 2xx with a JSON body, judged as the reset is. Anything else
+     * ends the run here.
+     */
     private static JsonNode accepted(HubResponse response) {
-        if (response.status() != 200) {
+        if (response.status() / 100 != 2) {
             throw new IllegalStateException("Hub refused [" + response.status() + "]: " + response.body());
         }
         return MAPPER.readTree(response.body());

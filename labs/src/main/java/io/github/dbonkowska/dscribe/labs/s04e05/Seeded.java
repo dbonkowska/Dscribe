@@ -43,6 +43,6 @@ final class Seeded {
             }
             ids.add(id.asString());
         }
-        return Set.copyOf(ids);
+        return ids;
     }
 }

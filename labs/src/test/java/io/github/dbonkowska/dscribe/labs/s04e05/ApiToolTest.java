@@ -215,6 +215,23 @@ class ApiToolTest {
         assertEquals(List.of(), sent);
     }
 
+    /**
+     * A delete names one order. An id that is a list or an object is refused by its form, before the
+     * seeded check — with the seeded id in second position, where a check reading only the first
+     * element would let it through.
+     */
+    @ParameterizedTest
+    @ValueSource(strings = {"{\"id\":[\"zz\",\"a1\"]}", "{\"id\":{\"of\":\"a1\"}}"})
+    void refusesADeleteWhoseIdIsNotOneValue(String params, @TempDir Path root) {
+        Tool<ApiTool.Call> tool = tool(root);
+
+        IllegalArgumentException thrown = assertThrows(IllegalArgumentException.class,
+                () -> tool.handler().apply(new ApiTool.Call("store", "remove", params)));
+
+        assertEquals(List.of(), sent);
+        assertTrue(thrown.getMessage().contains("one order id"), thrown::getMessage);
+    }
+
     @Test
     void sendsADeleteOfAnOrderTheModelCreated(@TempDir Path root) {
         tool(root).handler().apply(new ApiTool.Call("store", "remove", "{\"id\":\"zz\"}"));
@@ -259,9 +276,11 @@ class ApiToolTest {
 
         String text = (String) result;
         assertTrue(text.startsWith(reply), () -> "the reply itself comes first, untouched: " + text);
-        assertTrue(text.length() > reply.length() && text.contains("3")
-                        && text.contains("LIMIT") && text.contains("OFFSET"),
-                () -> "the note has to name the limit and how to page: " + text);
+        // asserted on the appended part alone: the reply already carries a 3, so a check on the
+        // whole text would pass for a note that never named the number
+        String note = text.substring(reply.length());
+        assertTrue(note.contains("3") && note.contains("LIMIT") && note.contains("OFFSET"),
+                () -> "the note has to name the limit and how to page: " + note);
     }
 
     @ParameterizedTest
@@ -270,7 +289,7 @@ class ApiToolTest {
             "{\"tables\":[\"t\"]}",
             "{\"count\":\"3\",\"limit\":3}",
             "not json at all"})
-    void handsBackAQueryReplyBelowItsLimitWordForWord(String body, @TempDir Path root) {
+    void handsBackAQueryReplyNotAtItsLimitWordForWord(String body, @TempDir Path root) {
         reply = body;
 
         Object result = tool(root).handler().apply(new ApiTool.Call("db", "", "{\"query\":\"q\"}")).result();
