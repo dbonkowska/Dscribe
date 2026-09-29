@@ -1,0 +1,341 @@
+package io.github.dbonkowska.dscribe.labs.s04e05;
+
+import io.github.dbonkowska.dscribe.labs.TestHeaders;
+import io.github.dbonkowska.dscribe.labs.data.RunTranscript;
+import io.github.dbonkowska.dscribe.labs.hub.HubResponse;
+import io.github.dbonkowska.dscribe.labs.hub.HubSend;
+import io.github.dbonkowska.dscribe.labs.hub.RateLimitHeaders;
+import io.github.dbonkowska.dscribe.labs.hub.ResilientHub;
+import io.github.dbonkowska.dscribe.labs.hub.RetryPolicy;
+import io.github.dbonkowska.dscribe.tool.Tool;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.ObjectMapper;
+
+import java.nio.file.Path;
+import java.time.Duration;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+/**
+ * The model's only door to an environment where it owns every read and every write. The tool is
+ * generic on purpose — which tools and actions exist is whatever the endpoint's own help says — so
+ * the refusals here are all that stand between a malformed call and the hub.
+ *
+ * <p>Every "nothing was sent" assertion sits after the call it is about. Tools, actions and
+ * parameters are invented and belong to no lesson.
+ */
+class ApiToolTest {
+
+    private static final ObjectMapper MAPPER = new ObjectMapper();
+
+    /** One send the fake hub received. */
+    private record Sent(String label, JsonNode answer) {}
+
+    /** What the fake hub was handed, in order. */
+    private final List<Sent> sent = new ArrayList<>();
+
+    /** What the fake hub answers; when unset, a reply numbered by how many sends it has seen. */
+    private String reply;
+
+    /** Parameters keep their JSON types: a number sent as a string is a different request. */
+    @Test
+    void sendsTheParametersWithToolAndActionAsTheAnswer(@TempDir Path root) {
+        tool(root).handler().apply(new ApiTool.Call("store", "list", "{\"n\":2}"));
+
+        assertEquals(1, sent.size());
+        assertEquals(MAPPER.readTree("{\"n\":2,\"tool\":\"store\",\"action\":\"list\"}"), sent.getFirst().answer());
+        assertTrue(sent.getFirst().label().contains("store") && sent.getFirst().label().contains("list"),
+                () -> "the transcript has to read per tool and action: " + sent.getFirst().label());
+    }
+
+    /** Some tools take no action at all; an empty one sent along would be a different request. */
+    @Test
+    void omitsABlankAction(@TempDir Path root) {
+        tool(root).handler().apply(new ApiTool.Call("info", "  ", "{}"));
+
+        assertEquals(MAPPER.readTree("{\"tool\":\"info\"}"), sent.getFirst().answer());
+    }
+
+    /** The observer and the model both read this, so it must be what the hub said and nothing more. */
+    @Test
+    void handsBackTheHubsReplyWordForWord(@TempDir Path root) {
+        Object result = tool(root).handler().apply(new ApiTool.Call("info", "", "{}")).result();
+
+        assertEquals("{\"n\":1}", result);
+    }
+
+    /** The vocabulary is discovered at run time, so nothing narrows the tool or the action. */
+    @Test
+    void narrowsNeitherToolNorAction(@TempDir Path root) {
+        JsonNode parameters = tool(root).spec().function().parameters();
+
+        assertTrue(parameters.at("/properties/tool/enum").isMissingNode(), "tool must not be narrowed");
+        assertTrue(parameters.at("/properties/action/enum").isMissingNode(), "action must not be narrowed");
+    }
+
+    @Test
+    void refusesParametersThatAreNotJsonWithoutSendingAnything(@TempDir Path root) {
+        Tool<ApiTool.Call> tool = tool(root);
+
+        assertThrows(IllegalArgumentException.class,
+                () -> tool.handler().apply(new ApiTool.Call("store", "list", "not json")));
+
+        assertEquals(List.of(), sent);
+    }
+
+    /**
+     * Refused as something the model can fix, not as a cast failure — both reach it as text, but only
+     * one says what to send instead.
+     */
+    @Test
+    void refusesParametersThatAreNotAnObjectWithoutSendingAnything(@TempDir Path root) {
+        Tool<ApiTool.Call> tool = tool(root);
+
+        IllegalArgumentException thrown = assertThrows(IllegalArgumentException.class,
+                () -> tool.handler().apply(new ApiTool.Call("store", "list", "[1]")));
+
+        assertEquals(List.of(), sent);
+        assertTrue(thrown.getMessage().contains("object"), thrown::getMessage);
+    }
+
+    /**
+     * The smuggled key. The argument says one thing and the parameters another; merged either way
+     * round, the transcript's label and what the hub does would disagree — and a tool named inside
+     * the parameters would be the way round every check on the argument.
+     */
+    @ParameterizedTest
+    @ValueSource(strings = {"tool", "action"})
+    void refusesAReservedKeyInsideTheParametersWithoutSendingAnything(String key, @TempDir Path root) {
+        Tool<ApiTool.Call> tool = tool(root);
+
+        IllegalArgumentException thrown = assertThrows(IllegalArgumentException.class,
+                () -> tool.handler().apply(new ApiTool.Call("store", "list", "{\"" + key + "\":\"x\"}")));
+
+        assertEquals(List.of(), sent);
+        assertTrue(thrown.getMessage().contains(key) && thrown.getMessage().contains("must not contain"),
+                thrown::getMessage);
+    }
+
+    /**
+     * The reset restores the seeded orders, so every order the model created is gone. The run sends
+     * it once at startup; the model never does.
+     */
+    @Test
+    void refusesTheResetWithoutSendingAnything(@TempDir Path root) {
+        Tool<ApiTool.Call> tool = tool(root);
+
+        IllegalArgumentException thrown = assertThrows(IllegalArgumentException.class,
+                () -> tool.handler().apply(new ApiTool.Call("wipe", "", "{}")));
+
+        assertEquals(List.of(), sent);
+        assertTrue(thrown.getMessage().contains("wipe") && thrown.getMessage().contains("startup"),
+                () -> "the model has to be told what was refused and that the run already did it: "
+                        + thrown.getMessage());
+    }
+
+    /**
+     * Decided by the tool before the parameters are read, so the refusal names the real reason. A
+     * bad-JSON refusal here would invite the model to fix the JSON and send the reset again.
+     */
+    @Test
+    void refusesTheResetBeforeReadingItsParameters(@TempDir Path root) {
+        Tool<ApiTool.Call> tool = tool(root);
+
+        IllegalArgumentException thrown = assertThrows(IllegalArgumentException.class,
+                () -> tool.handler().apply(new ApiTool.Call("wipe", "", "not json")));
+
+        assertEquals(List.of(), sent);
+        assertTrue(thrown.getMessage().contains("startup"),
+                () -> "refused as the reset, not as bad JSON: " + thrown.getMessage());
+    }
+
+    /**
+     * Matched stripped and case-folded, the way s04e03's environment matched its reset. Whether this
+     * one folds is unprobed; refusing a spelling it would have rejected anyway costs nothing, and
+     * letting through one it accepts would wipe the run.
+     */
+    @ParameterizedTest
+    @ValueSource(strings = {"Wipe", "WIPE", " wipe", "wipe ", "\twipe\n"})
+    void refusesTheResetUnderAnySpelling(String spelling, @TempDir Path root) {
+        Tool<ApiTool.Call> tool = tool(root);
+
+        IllegalArgumentException thrown = assertThrows(IllegalArgumentException.class,
+                () -> tool.handler().apply(new ApiTool.Call(spelling, "", "{}")));
+
+        assertEquals(List.of(), sent);
+        assertTrue(thrown.getMessage().contains("startup"), thrown::getMessage);
+    }
+
+    /** Folding is for matching the reset, not a licence to refuse names that merely contain it. */
+    @Test
+    void sendsAToolThatOnlyContainsTheResetsName(@TempDir Path root) {
+        tool(root).handler().apply(new ApiTool.Call("wipeLogs", "", "{}"));
+
+        assertEquals(1, sent.size());
+    }
+
+    /**
+     * The orders that were there before the run are left alone — decided in design. The model may
+     * still delete its own, which is how it recovers from an order it filled wrongly.
+     */
+    @Test
+    void refusesDeletingASeededOrderWithoutSendingAnything(@TempDir Path root) {
+        Tool<ApiTool.Call> tool = tool(root);
+
+        IllegalArgumentException thrown = assertThrows(IllegalArgumentException.class,
+                () -> tool.handler().apply(new ApiTool.Call("store", "remove", "{\"id\":\"a1\"}")));
+
+        assertEquals(List.of(), sent);
+        assertTrue(thrown.getMessage().contains("a1"), thrown::getMessage);
+    }
+
+    /** Padding on the id, or a tool and action spelled differently, is the same delete. */
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "store|remove|{\"id\":\" a1 \"}",
+            "STORE|Remove|{\"id\":\"a1\"}",
+            " store |\tremove\n|{\"id\":\"a1\"}"})
+    void refusesDeletingASeededOrderUnderAnySpelling(String call, @TempDir Path root) {
+        String[] parts = call.split("\\|", 3);
+        Tool<ApiTool.Call> tool = tool(root);
+
+        assertThrows(IllegalArgumentException.class,
+                () -> tool.handler().apply(new ApiTool.Call(parts[0], parts[1], parts[2])));
+
+        assertEquals(List.of(), sent);
+    }
+
+    /**
+     * A delete names one order. An id that is a list or an object is refused by its form, before the
+     * seeded check — with the seeded id in second position, where a check reading only the first
+     * element would let it through.
+     */
+    @ParameterizedTest
+    @ValueSource(strings = {"{\"id\":[\"zz\",\"a1\"]}", "{\"id\":{\"of\":\"a1\"}}"})
+    void refusesADeleteWhoseIdIsNotOneValue(String params, @TempDir Path root) {
+        Tool<ApiTool.Call> tool = tool(root);
+
+        IllegalArgumentException thrown = assertThrows(IllegalArgumentException.class,
+                () -> tool.handler().apply(new ApiTool.Call("store", "remove", params)));
+
+        assertEquals(List.of(), sent);
+        assertTrue(thrown.getMessage().contains("one order id"), thrown::getMessage);
+    }
+
+    @Test
+    void sendsADeleteOfAnOrderTheModelCreated(@TempDir Path root) {
+        tool(root).handler().apply(new ApiTool.Call("store", "remove", "{\"id\":\"zz\"}"));
+
+        assertEquals(1, sent.size());
+    }
+
+    /** Reading a seeded order is harmless; only the delete is guarded. */
+    @Test
+    void sendsAReadOfASeededOrder(@TempDir Path root) {
+        tool(root).handler().apply(new ApiTool.Call("store", "list", "{\"id\":\"a1\"}"));
+
+        assertEquals(1, sent.size());
+    }
+
+    /**
+     * No fix to the call makes a seeded delete acceptable, so it is refused before the reserved-key
+     * check, which a corrected call would pass. The other way round, the model removes the key and
+     * sends the same delete.
+     */
+    @Test
+    void refusesASeededDeleteBeforeTheReservedKeys(@TempDir Path root) {
+        Tool<ApiTool.Call> tool = tool(root);
+
+        IllegalArgumentException thrown = assertThrows(IllegalArgumentException.class,
+                () -> tool.handler().apply(new ApiTool.Call("store", "remove", "{\"id\":\"a1\",\"action\":\"x\"}")));
+
+        assertEquals(List.of(), sent);
+        assertTrue(thrown.getMessage().contains("a1") && !thrown.getMessage().contains("must not contain"),
+                () -> "refused as a seeded order, not as a reserved key: " + thrown.getMessage());
+    }
+
+    /**
+     * A query reply is capped, and a capped reply looks like a complete one. When it came back
+     * exactly at the cap, the model is told it may be looking at part of the result.
+     */
+    @Test
+    void notesAQueryReplyThatReachedItsLimit(@TempDir Path root) {
+        reply = "{\"count\":3,\"limit\":3,\"rows\":[1,2,3]}";
+
+        Object result = tool(root).handler().apply(new ApiTool.Call("db", "", "{\"query\":\"q\"}")).result();
+
+        String text = (String) result;
+        assertTrue(text.startsWith(reply), () -> "the reply itself comes first, untouched: " + text);
+        // asserted on the appended part alone: the reply already carries a 3, so a check on the
+        // whole text would pass for a note that never named the number
+        String note = text.substring(reply.length());
+        assertTrue(note.contains("3") && note.contains("LIMIT") && note.contains("OFFSET"),
+                () -> "the note has to name the limit and how to page: " + note);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "{\"count\":2,\"limit\":3,\"rows\":[1,2]}",
+            "{\"tables\":[\"t\"]}",
+            "{\"count\":\"3\",\"limit\":3}",
+            "not json at all"})
+    void handsBackAQueryReplyNotAtItsLimitWordForWord(String body, @TempDir Path root) {
+        reply = body;
+
+        Object result = tool(root).handler().apply(new ApiTool.Call("db", "", "{\"query\":\"q\"}")).result();
+
+        assertEquals(body, result);
+    }
+
+    /** Only the query tool is capped this way; another tool's count and limit mean something else. */
+    @Test
+    void handsBackAnotherToolsReplyWordForWord(@TempDir Path root) {
+        reply = "{\"count\":3,\"limit\":3}";
+
+        Object result = tool(root).handler().apply(new ApiTool.Call("store", "list", "{}")).result();
+
+        assertEquals(reply, result);
+    }
+
+    /** Matched like every other name here: the same query tool, spelled differently. */
+    @Test
+    void notesAQueryReplyUnderAnySpellingOfTheTool(@TempDir Path root) {
+        reply = "{\"count\":3,\"limit\":3}";
+
+        Object result = tool(root).handler().apply(new ApiTool.Call(" DB ", "", "{\"query\":\"q\"}")).result();
+
+        assertTrue(((String) result).contains("LIMIT"), () -> "noted: " + result);
+    }
+
+    private Tool<ApiTool.Call> tool(Path root) {
+        return new ApiTool(
+                hub(root), "wipe", new TaskParams.Orders("store", "list", "remove", "items"), Set.of("a1"), "db")
+                .tool("call", "calls one tool");
+    }
+
+    private ResilientHub hub(Path root) {
+        HubSend sender = (label, taskName, answer) -> {
+            sent.add(new Sent(label, MAPPER.valueToTree(answer)));
+            String body = reply != null ? reply : "{\"n\":" + sent.size() + "}";
+            return new HubResponse(200, TestHeaders.of(Map.of()), body);
+        };
+
+        return new ResilientHub(
+                sender,
+                "x-task",
+                RetryPolicy.defaults(),
+                new RateLimitHeaders(List.of(), Duration.ofSeconds(60)),
+                wait -> {},
+                RunTranscript.open(root.resolve("logs"), "x01", Map.of(), List.of()));
+    }
+}
