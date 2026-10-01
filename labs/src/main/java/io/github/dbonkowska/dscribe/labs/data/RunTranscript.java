@@ -227,7 +227,8 @@ public final class RunTranscript implements Transcript, AutoCloseable {
 
                 sent.path("messages").forEach(message -> conversation(block, message));
 
-                quote(block, back.at("/choices/0/message/content").asString(""));
+                // a chat reply answers under choices; a speech-to-text reply answers in text
+                quote(block, back.at("/choices/0/message/content").asString(back.path("text").asString("")));
 
                 block.append("<details><summary>raw exchange</summary>\n\n")
                         .append("```json\n").append(elided(request.strip())).append("\n```\n\n")

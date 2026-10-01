@@ -362,6 +362,25 @@ class RunTranscriptTest {
         assertFalse(written.contains(payload), "the payload must not reach the file");
     }
 
+    /**
+     * A speech reply carries its answer in {@code text}, not where a chat reply does. Read only the
+     * chat place and the delegated heading has nothing under it, so what the audio said is visible
+     * only in the collapsed raw block.
+     */
+    @Test
+    void showsWhatASpeechCallHeardUnderItsHeading() throws IOException {
+        RunTranscript transcript = open(root());
+
+        transcript.delegated("speech").append(
+                "{\"model\":\"stt/m\",\"input_audio\":{\"data\":\"AQID\",\"format\":\"mp3\"}}",
+                "{\"text\":\"heard words\"}");
+
+        String written = contents(transcript);
+        int shown = written.indexOf("> heard words");
+        assertTrue(shown >= 0, () -> written);
+        assertTrue(shown < written.indexOf("raw exchange"), "it has to be shown above the raw block");
+    }
+
     /** Long text is what the hub's transcriptions are; spaces keep it from looking like a payload. */
     @Test
     void leavesALongTextValueInAHubReplyUntouched() throws IOException {
