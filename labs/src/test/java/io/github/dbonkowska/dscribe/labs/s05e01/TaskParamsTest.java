@@ -31,6 +31,10 @@ class TaskParamsTest {
             endCode=7
             noiseMarkers.1=hum
             noiseMarkers.2=fizz
+            fields.1.name=place
+            fields.1.format=text
+            fields.2.name=size
+            fields.2.format=decimal2
             """;
 
     @Test
@@ -44,6 +48,53 @@ class TaskParamsTest {
         assertEquals("send", params.actions().transmit());
         assertEquals(7, params.endCode());
         assertEquals(List.of("hum", "fizz"), params.noiseMarkers());
+        assertEquals(
+                List.of(new TaskParams.Field("place", "text"), new TaskParams.Field("size", "decimal2")),
+                params.fields());
+    }
+
+    /** With no fields there is nothing to ask the model for and nothing to send. */
+    @Test
+    void refusesAFileWithNoFields() {
+        String props = COMPLETE.lines()
+                .filter(line -> !line.startsWith("fields."))
+                .collect(Collectors.joining("\n"));
+
+        RuntimeException thrown = assertThrows(RuntimeException.class,
+                () -> new JavaPropsMapper().readValue(props, TaskParams.class));
+
+        assertTrue(thrown.getMessage().contains("fields"), thrown::getMessage);
+    }
+
+    @Test
+    void refusesAFieldWithABlankName() {
+        String props = COMPLETE.replace("fields.1.name=place", "fields.1.name=  ");
+
+        RuntimeException thrown = assertThrows(RuntimeException.class,
+                () -> new JavaPropsMapper().readValue(props, TaskParams.class));
+
+        assertTrue(thrown.getMessage().contains("fields.N.name"), thrown::getMessage);
+    }
+
+    /** A format the report cannot apply would be found only after every tier had been paid for. */
+    @Test
+    void refusesAFormatTheReportDoesNotKnow() {
+        String props = COMPLETE.replace("fields.2.format=decimal2", "fields.2.format=money");
+
+        RuntimeException thrown = assertThrows(RuntimeException.class,
+                () -> new JavaPropsMapper().readValue(props, TaskParams.class));
+
+        assertTrue(thrown.getMessage().contains("money"), thrown::getMessage);
+    }
+
+    @Test
+    void refusesAFieldNamedTwice() {
+        String props = COMPLETE.replace("fields.2.name=size", "fields.2.name=place");
+
+        RuntimeException thrown = assertThrows(RuntimeException.class,
+                () -> new JavaPropsMapper().readValue(props, TaskParams.class));
+
+        assertTrue(thrown.getMessage().contains("place"), thrown::getMessage);
     }
 
     @ParameterizedTest

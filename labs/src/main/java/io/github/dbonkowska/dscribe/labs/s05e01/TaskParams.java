@@ -1,6 +1,8 @@
 package io.github.dbonkowska.dscribe.labs.s05e01;
 
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.regex.Pattern;
 import java.util.regex.PatternSyntaxException;
 
@@ -18,13 +20,17 @@ import java.util.regex.PatternSyntaxException;
  * @param noiseMarkers words that mark a transcription as radio noise, as an indexed list:
  *                     {@code noiseMarkers.1=…}. Used only to count noise in the log — nothing is
  *                     dropped by them
+ * @param fields       what the report is made of, in the order it is sent, as an indexed list:
+ *                     {@code fields.1.name}, {@code fields.1.format}. The names are the exercise's
+ *                     words, so the extraction schema is built from them at run time
  */
 public record TaskParams(
         String verifyTask,
         String flagPattern,
         Actions actions,
         int endCode,
-        List<String> noiseMarkers) {
+        List<String> noiseMarkers,
+        List<Field> fields) {
 
     /** Each check refuses at the binding boundary, before the transcript is even open. */
     public TaskParams {
@@ -47,6 +53,43 @@ public record TaskParams(
                     "noiseMarkers is missing: set noiseMarkers.1=… in the lesson's task.properties.");
         }
         noiseMarkers = List.copyOf(noiseMarkers);
+        if (fields == null || fields.isEmpty()) {
+            throw new IllegalStateException(
+                    "fields must list at least one report field: with none there is nothing to ask the"
+                            + " model for and nothing to send. Set fields.1.name and fields.1.format, ... in"
+                            + " the lesson's task.properties.");
+        }
+        Set<String> seen = new HashSet<>();
+        for (Field field : fields) {
+            if (!seen.add(field.name())) {
+                throw new IllegalStateException(
+                        "fields names " + field.name() + " twice. Each report field must appear once.");
+            }
+        }
+        fields = List.copyOf(fields);
+    }
+
+    /** How a field is written on the way out — the only formats {@link Report#answer} knows. */
+    static final List<String> FORMATS = List.of("text", "integer", "digits", "decimal2");
+
+    /**
+     * One value the report carries, in the order it is sent.
+     *
+     * @param name   the hub's name for it, which is also the key the model fills
+     * @param format how code writes it: {@code text} stripped, {@code integer} as a number,
+     *               {@code digits} with every non-digit removed, {@code decimal2} rounded half up to
+     *               exactly two places
+     */
+    public record Field(String name, String format) {
+        public Field {
+            name = require(name, "fields.N.name");
+            format = require(format, "fields.N.format");
+            if (!FORMATS.contains(format)) {
+                throw new IllegalStateException(
+                        "fields: " + name + " has format " + format + ", which the report cannot write. Use"
+                                + " one of " + FORMATS + ".");
+            }
+        }
     }
 
     public record Actions(String start, String listen, String transmit) {
