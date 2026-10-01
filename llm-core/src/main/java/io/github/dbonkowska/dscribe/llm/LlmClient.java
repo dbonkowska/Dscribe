@@ -1,5 +1,6 @@
 package io.github.dbonkowska.dscribe.llm;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import tools.jackson.databind.DeserializationFeature;
 import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.json.JsonMapper;
@@ -11,6 +12,7 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.util.Base64;
 import java.util.List;
 
 public class LlmClient implements ChatTransport {
@@ -75,6 +77,34 @@ public class LlmClient implements ChatTransport {
     ChatRequest toolRequest(List<Message> messages, List<ToolSpec> tools, String toolChoice) {
         return new ChatRequest(model, messages, null, tools, toolChoice, reasoning);
     }
+
+    /** What {@link #transcribe} sends, built apart from the sending so it can be asserted. */
+    TranscriptionRequest transcriptionRequest(byte[] audio, String format) {
+        return new TranscriptionRequest(
+                model, new TranscriptionRequest.InputAudio(Base64.getEncoder().encodeToString(audio), format));
+    }
+
+    /**
+     * The speech endpoint names its usage differently from chat — {@code input_tokens} where chat
+     * says {@code prompt_tokens} — so it is read through its own shape and then carried as the one
+     * {@link Usage} every report sums. Read with chat's names it would parse as zero tokens and
+     * still look like a figure.
+     */
+    static Transcription parseTranscription(String body) {
+        TranscriptionReply reply = MAPPER.readValue(body, TranscriptionReply.class);
+        SpeechUsage usage = reply.usage();
+        return new Transcription(
+                reply.text(),
+                usage == null ? null : new Usage(usage.inputTokens(), usage.outputTokens(), usage.totalTokens(), usage.cost()));
+    }
+
+    private record TranscriptionReply(String text, SpeechUsage usage) {}
+
+    private record SpeechUsage(
+            @JsonProperty("input_tokens") int inputTokens,
+            @JsonProperty("output_tokens") int outputTokens,
+            @JsonProperty("total_tokens") int totalTokens,
+            double cost) {}
 
     public String model(){
         return model;
