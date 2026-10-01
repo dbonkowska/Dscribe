@@ -44,6 +44,15 @@ public final class RunTranscript implements Transcript, AutoCloseable {
     private static final Pattern DATA_URI =
             Pattern.compile("data:([\\w.+-]+/[\\w.+-]+);base64,([A-Za-z0-9+/]+={0,2})");
 
+    /**
+     * A JSON string value that is nothing but Base64, long enough to be a payload rather than an id
+     * or a hash. The backslash is in the class because the hub escapes every {@code /} as
+     * {@code \/}. One character class, possessive, rather than an alternation: an alternation under
+     * a quantifier recurses once per character in Java's engine, and a payload runs to hundreds of
+     * thousands of them.
+     */
+    private static final Pattern BARE_BASE64 = Pattern.compile("\"([A-Za-z0-9+/\\\\]{1024,}+={0,2})\"");
+
     private static final DateTimeFormatter STAMP = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH-mm-ss");
     private static final DateTimeFormatter READABLE = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
 
@@ -235,10 +244,11 @@ public final class RunTranscript implements Transcript, AutoCloseable {
     }
 
     /**
-     * A base64 image payload, replaced by its size.
+     * A base64 payload, replaced by its size: an image's data URI, or a bare Base64 value such as a
+     * hub attachment or the audio a speech call sends.
      *
-     * <p>Applied to the delegated exchange's raw block, and to image parts wherever a
-     * conversation is rendered, on either path. Never to {@link #append}'s raw blocks: those stay
+     * <p>Applied to the delegated exchange's raw block, to hub replies, and to image parts wherever
+     * a conversation is rendered, on either path. Never to {@link #append}'s raw blocks: those stay
      * verbatim, which is the older and stronger guarantee — a serialisation fault has to show up
      * exactly as it went over the wire. Nothing sends an inline image through the main loop, so
      * nothing is given up by leaving them alone.
@@ -253,8 +263,10 @@ public final class RunTranscript implements Transcript, AutoCloseable {
      * be counted.
      */
     static String elided(String json) {
-        return DATA_URI.matcher(json).replaceAll(match ->
+        String uris = DATA_URI.matcher(json).replaceAll(match ->
                 "data:" + match.group(1) + ";base64, <" + decodedLength(match.group(2)) + " bytes elided>");
+        return BARE_BASE64.matcher(uris).replaceAll(match ->
+                "\"<" + decodedLength(match.group(1).replace("\\", "")) + " bytes elided>\"");
     }
 
     private static int decodedLength(String base64) {
@@ -377,7 +389,7 @@ public final class RunTranscript implements Transcript, AutoCloseable {
                 + "```json\n" + request.strip() + "\n```\n\n"
                 + "response headers\n\n" + rendered(headers) + "\n"
                 + "response\n\n"
-                + "```json\n" + response.strip() + "\n```\n");
+                + "```json\n" + elided(response.strip()) + "\n```\n");
     }
 
     private static String rendered(HttpHeaders headers) {

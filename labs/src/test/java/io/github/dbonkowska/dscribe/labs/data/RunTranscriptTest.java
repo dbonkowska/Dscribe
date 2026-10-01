@@ -321,6 +321,71 @@ class RunTranscriptTest {
     }
 
     /**
+     * Base64 of {@code size} bytes of 0xFF, escaped the way the hub writes it: every {@code /} as
+     * {@code \/}. All-0xFF encodes to slashes, so the escape is on every character, not by chance.
+     */
+    private static String hubEscapedPayload(int size) {
+        byte[] bytes = new byte[size];
+        java.util.Arrays.fill(bytes, (byte) 0xFF);
+        return Base64.getEncoder().encodeToString(bytes).replace("/", "\\/");
+    }
+
+    /**
+     * The hub hands binaries back as a bare Base64 field, not a data URI. Written whole, one
+     * listen of a few hundred kilobytes made the probe's file 1.9 MB.
+     */
+    @Test
+    void elidesABareBase64FieldInAHubReply() throws IOException {
+        String payload = hubEscapedPayload(3000);
+        RunTranscript transcript = open(root());
+
+        transcript.hubCall("listen", "/verify", 200, headers(Map.of()), "{}",
+                "{\"meta\":\"audio\\/mpeg\",\"attachment\":\"" + payload + "\"}");
+
+        String written = contents(transcript);
+        assertTrue(written.contains("<3000 bytes elided>"), () -> written);
+        assertFalse(written.contains(payload.substring(0, 200)), "the payload must not reach the file");
+    }
+
+    /** The audio a speech call sends is bare Base64 too, and it goes through the delegated path. */
+    @Test
+    void elidesTheAudioInADelegatedRequest() throws IOException {
+        String payload = Base64.getEncoder().encodeToString(new byte[2000]);
+        RunTranscript transcript = open(root());
+
+        transcript.delegated("speech").append(
+                "{\"model\":\"stt/m\",\"input_audio\":{\"data\":\"" + payload + "\",\"format\":\"mp3\"}}",
+                "{\"text\":\"hi\"}");
+
+        String written = contents(transcript);
+        assertTrue(written.contains("<2000 bytes elided>"), () -> written);
+        assertFalse(written.contains(payload), "the payload must not reach the file");
+    }
+
+    /** Long text is what the hub's transcriptions are; spaces keep it from looking like a payload. */
+    @Test
+    void leavesALongTextValueInAHubReplyUntouched() throws IOException {
+        String text = "zażółć gęślą jaźń ".repeat(120).strip();
+        RunTranscript transcript = open(root());
+
+        transcript.hubCall("listen", "/verify", 200, headers(Map.of()), "{}",
+                "{\"transcription\":\"" + text + "\"}");
+
+        assertTrue(contents(transcript).contains(text));
+    }
+
+    /** An id or a hash is Base64-shaped too, and short; it is the evidence, not the bulk. */
+    @Test
+    void leavesAShortBase64LookingValueUntouched() throws IOException {
+        String id = "QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVo0MTI";
+        RunTranscript transcript = open(root());
+
+        transcript.hubCall("listen", "/verify", 200, headers(Map.of()), "{}", "{\"id\":\"" + id + "\"}");
+
+        assertTrue(contents(transcript).contains(id));
+    }
+
+    /**
      * A message whose content is an array of parts used to render as a role heading with nothing
      * under it — {@code content.asString("")} is empty for an array. The next thing written was
      * the model's answer, so it sat directly beneath the {@code user} heading and read as though
