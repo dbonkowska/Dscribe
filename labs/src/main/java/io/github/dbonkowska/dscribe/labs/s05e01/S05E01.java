@@ -199,9 +199,18 @@ public class S05E01 {
             write(runDir.resolve("raw").resolve(String.format("%03d.json", n)), response.body().getBytes(StandardCharsets.UTF_8));
             JsonNode reply = accepted(response);
 
-            if (reply.path("code").asInt() == task.endCode()) {
+            int code = reply.path("code").asInt();
+            if (code == task.endCode()) {
                 ended = true;
                 break;
+            }
+            // Any other code is the hub saying something this run was not built for. Dropping it and
+            // listening again would end, at the cap, on a message blaming endCode for the hub's words.
+            if (code != task.payloadCode()) {
+                transcript.outcome("Stopped on listen " + n + ": unexpected code " + code + ": " + response.body());
+                throw new IllegalStateException(
+                        "Listen " + n + " came back with code " + code + ", neither a payload ("
+                                + task.payloadCode() + ") nor the end (" + task.endCode() + "): " + response.body());
             }
 
             switch (Payload.classify(n, reply)) {

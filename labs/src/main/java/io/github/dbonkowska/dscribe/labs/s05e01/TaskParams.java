@@ -16,6 +16,8 @@ import java.util.regex.PatternSyntaxException;
  * @param verifyTask   the task name the hub expects
  * @param flagPattern  a regex matching a reply that carries the result
  * @param actions      the session's three actions
+ * @param payloadCode  the reply code a listen carries a payload under. Any code that is neither
+ *                     this nor {@code endCode} stops the run with the hub's words
  * @param endCode      the reply code meaning there is nothing more to listen to
  * @param noiseMarkers words that mark a transcription as radio noise, as an indexed list:
  *                     {@code noiseMarkers.1=…}. Used only to count noise in the log — nothing is
@@ -28,6 +30,7 @@ public record TaskParams(
         String verifyTask,
         String flagPattern,
         Actions actions,
+        int payloadCode,
         int endCode,
         List<String> noiseMarkers,
         List<Field> fields) {
@@ -56,6 +59,16 @@ public record TaskParams(
             throw new IllegalStateException(
                     "endCode is " + endCode + ", which is missing or not a code the hub sends. Set it in"
                             + " the lesson's task.properties.");
+        }
+        if (payloadCode <= 0) {
+            throw new IllegalStateException(
+                    "payloadCode is " + payloadCode + ", which is missing or not a code the hub sends. Set"
+                            + " it in the lesson's task.properties.");
+        }
+        if (payloadCode == endCode) {
+            throw new IllegalStateException(
+                    "payloadCode and endCode are both " + endCode + ". One code cannot mean both a payload"
+                            + " and the end of the material.");
         }
         if (noiseMarkers == null || noiseMarkers.isEmpty()) {
             throw new IllegalStateException(

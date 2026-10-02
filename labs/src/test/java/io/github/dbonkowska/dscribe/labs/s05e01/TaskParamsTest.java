@@ -2,6 +2,7 @@ package io.github.dbonkowska.dscribe.labs.s05e01;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 import tools.jackson.dataformat.javaprop.JavaPropsMapper;
 
@@ -28,6 +29,7 @@ class TaskParamsTest {
             actions.start=open
             actions.listen=poll
             actions.transmit=send
+            payloadCode=6
             endCode=7
             noiseMarkers.1=hum
             noiseMarkers.2=fizz
@@ -46,6 +48,7 @@ class TaskParamsTest {
         assertEquals("open", params.actions().start());
         assertEquals("poll", params.actions().listen());
         assertEquals("send", params.actions().transmit());
+        assertEquals(6, params.payloadCode());
         assertEquals(7, params.endCode());
         assertEquals(List.of("hum", "fizz"), params.noiseMarkers());
         assertEquals(
@@ -115,7 +118,7 @@ class TaskParamsTest {
 
     @ParameterizedTest
     @ValueSource(strings = {
-            "verifyTask", "flagPattern", "actions.start", "actions.listen", "actions.transmit", "endCode"})
+            "verifyTask", "flagPattern", "actions.start", "actions.listen", "actions.transmit", "payloadCode", "endCode"})
     void refusesARequiredKeyThatWasNeverWritten(String key) {
         String props = COMPLETE.lines()
                 .filter(line -> !line.startsWith(key + "="))
@@ -145,16 +148,27 @@ class TaskParamsTest {
         assertTrue(thrown.getMessage().contains(key), thrown::getMessage);
     }
 
-    /** No end code the hub could send is zero or below, so either is a key nobody set properly. */
+    /** No code the hub could send is zero or below, so either is a key nobody set properly. */
     @ParameterizedTest
-    @ValueSource(strings = {"0", "-1"})
-    void refusesAnEndCodeThatCannotBeTheHubs(String value) {
-        String props = COMPLETE.replace("endCode=7", "endCode=" + value);
+    @CsvSource({"endCode=7,endCode,0", "endCode=7,endCode,-1", "payloadCode=6,payloadCode,0", "payloadCode=6,payloadCode,-1"})
+    void refusesACodeThatCannotBeTheHubs(String line, String key, String value) {
+        String props = COMPLETE.replace(line, key + "=" + value);
 
         RuntimeException thrown = assertThrows(RuntimeException.class,
                 () -> new JavaPropsMapper().readValue(props, TaskParams.class));
 
-        assertTrue(thrown.getMessage().contains("endCode"), thrown::getMessage);
+        assertTrue(thrown.getMessage().contains(key), thrown::getMessage);
+    }
+
+    /** One code cannot mean both "here is a payload" and "there is nothing more". */
+    @Test
+    void refusesAPayloadCodeEqualToTheEndCode() {
+        String props = COMPLETE.replace("payloadCode=6", "payloadCode=7");
+
+        RuntimeException thrown = assertThrows(RuntimeException.class,
+                () -> new JavaPropsMapper().readValue(props, TaskParams.class));
+
+        assertTrue(thrown.getMessage().contains("payloadCode"), thrown::getMessage);
     }
 
     /** The noise count in the log is the only thing they feed, but a run with none counts nothing. */
