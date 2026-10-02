@@ -1,5 +1,6 @@
 package io.github.dbonkowska.dscribe.llm;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import tools.jackson.databind.DeserializationFeature;
 import tools.jackson.databind.ObjectMapper;
 import tools.jackson.databind.json.JsonMapper;
@@ -11,11 +12,13 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.util.Base64;
 import java.util.List;
 
 public class LlmClient implements ChatTransport {
 
     private static final String CHAT_COMPLETIONS = "/chat/completions";
+    private static final String AUDIO_TRANSCRIPTIONS = "/audio/transcriptions";
 
     // both are thread-safe and stateless once built, so every client instance can share them
     private static final HttpClient HTTP = HttpClient.newHttpClient();
@@ -76,6 +79,55 @@ public class LlmClient implements ChatTransport {
         return new ChatRequest(model, messages, null, tools, toolChoice, reasoning);
     }
 
+    /** What {@link #transcribe} sends, built apart from the sending so it can be asserted. */
+    TranscriptionRequest transcriptionRequest(byte[] audio, String format) {
+        return new TranscriptionRequest(
+                model, new TranscriptionRequest.InputAudio(Base64.getEncoder().encodeToString(audio), format));
+    }
+
+    /**
+     * The speech endpoint names its usage differently from chat — {@code input_tokens} where chat
+     * says {@code prompt_tokens} — so it is read through its own shape and then carried as the one
+     * {@link Usage} every report sums. Read with chat's names it would parse as zero tokens and
+     * still look like a figure.
+     */
+    static Transcription parseTranscription(String body) {
+        TranscriptionReply reply = MAPPER.readValue(body, TranscriptionReply.class);
+        SpeechUsage usage = reply.usage();
+        return new Transcription(
+                reply.text(),
+                usage == null ? null : new Usage(usage.inputTokens(), usage.outputTokens(), usage.totalTokens(), usage.cost()));
+    }
+
+    /**
+     * What the audio says, from the speech-to-text endpoint — a different path from chat, with the
+     * same rules: refused without a model, recorded before the status check, spend reported once the
+     * reply has parsed.
+     *
+     * <p>The audio travels in the request whole. Anything recording it should elide the payload
+     * rather than write it out.
+     *
+     * @param format the container, e.g. {@code mp3}
+     */
+    public Transcription transcribe(byte[] audio, String format) {
+        requireModel();
+        Transcription heard = parseTranscription(post(AUDIO_TRANSCRIPTIONS, transcriptionRequest(audio, format)));
+
+        // the reply names no model, so the spend goes to the one that was asked
+        if (heard.usage() != null) {
+            transcript.usage(attributed(null, model), heard.usage());
+        }
+        return heard;
+    }
+
+    private record TranscriptionReply(String text, SpeechUsage usage) {}
+
+    private record SpeechUsage(
+            @JsonProperty("input_tokens") int inputTokens,
+            @JsonProperty("output_tokens") int outputTokens,
+            @JsonProperty("total_tokens") int totalTokens,
+            double cost) {}
+
     public String model(){
         return model;
     }
@@ -115,6 +167,19 @@ public class LlmClient implements ChatTransport {
     }
 
     private ChatResponse exchange(ChatRequest requestBody) {
+        requireModel();
+        ChatResponse parsed = MAPPER.readValue(post(CHAT_COMPLETIONS, requestBody), ChatResponse.class);
+
+        // after the status check and the parse, unlike the raw halves: a call the provider
+        // rejected spent nothing, and one that did not parse has no figure to report
+        if (parsed.usage() != null) {
+            transcript.usage(attributed(parsed.model(), model), parsed.usage());
+        }
+
+        return parsed;
+    }
+
+    private void requireModel() {
         if (!named(model)) {
             // nothing here invents a model: a request that names none is answered by the provider
             // with an error a long way from the config key that caused it
@@ -122,11 +187,15 @@ public class LlmClient implements ChatTransport {
                     "No model to call: the configuration names none and no default was given. "
                             + "Set one in LlmConfig, or call defaultModel(...).");
         }
+    }
+
+    /** One POST to the provider, recorded before its status is looked at; the body of a 200. */
+    private String post(String path, Object requestBody) {
         try {
             String json = MAPPER.writeValueAsString(requestBody);
 
             HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(config.baseUrl() + CHAT_COMPLETIONS))
+                    .uri(URI.create(config.baseUrl() + path))
                     .header("Content-Type", "application/json")
                     .header("Authorization", "Bearer " + config.apiKey())
                     .POST(HttpRequest.BodyPublishers.ofString(json))
@@ -141,15 +210,7 @@ public class LlmClient implements ChatTransport {
                 throw new RuntimeException("API error [" + response.statusCode() + "]: " + response.body());
             }
 
-            ChatResponse parsed = MAPPER.readValue(response.body(), ChatResponse.class);
-
-            // after the status check and the parse, unlike the raw halves above: a call the
-            // provider rejected spent nothing, and one that did not parse has no figure to report
-            if (parsed.usage() != null) {
-                transcript.usage(attributed(parsed.model(), model), parsed.usage());
-            }
-
-            return parsed;
+            return response.body();
 
         } catch (IOException e) {
             throw new RuntimeException(e);

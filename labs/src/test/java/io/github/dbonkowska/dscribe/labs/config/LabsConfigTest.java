@@ -156,7 +156,7 @@ class LabsConfigTest {
     @Test
     void offersTheVisionSlotAsAConfigCarryingTheSameCredentials() {
         LlmConfig vision =
-                new LabsConfig.Llm("k", "main/m", "vis/m", "https://llm.test").vision();
+                new LabsConfig.Llm("k", "main/m", "vis/m", null, "https://llm.test").vision();
 
         assertEquals("vis/m", vision.model(), "only the model differs");
         assertEquals("k", vision.apiKey());
@@ -166,6 +166,25 @@ class LabsConfigTest {
     @Test
     void leavesTheVisionSlotUnnamedWhenNothingConfiguresIt() {
         // then the runner's own pin fills it, exactly as it does for the main slot
-        assertNull(new LabsConfig.Llm("k", "main/m", null, "https://llm.test").vision().model());
+        assertNull(new LabsConfig.Llm("k", "main/m", null, null, "https://llm.test").vision().model());
+    }
+
+    /**
+     * A third slot for the same reason as the second: a flag meant to try a different chat model
+     * must not retarget the speech call, which would then send audio to a model that cannot hear it.
+     */
+    @Test
+    void offersTheSpeechSlotAsAConfigCarryingTheSameCredentials() {
+        LlmConfig speech =
+                new LabsConfig.Llm("k", "main/m", "vis/m", "speech/m", "https://llm.test").speech();
+
+        assertEquals("speech/m", speech.model(), "only the model differs");
+        assertEquals("k", speech.apiKey());
+        assertEquals("https://llm.test", speech.baseUrl());
+    }
+
+    @Test
+    void leavesTheSpeechSlotUnnamedWhenNothingConfiguresIt() {
+        assertNull(new LabsConfig.Llm("k", "main/m", "vis/m", null, "https://llm.test").speech().model());
     }
 }
