@@ -35,7 +35,7 @@ import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 /**
- * Intercepted material pulled one payload at a time, sorted by code, and turned into a report by a
+ * Material pulled one payload at a time, sorted by code, and turned into a report by a
  * model cascade: the cheapest tier first, the next only while a field is still missing.
  *
  * <p>Every payload becomes text before a model reads it. Text and structured files are read as they
@@ -66,7 +66,7 @@ public class S05E01 {
     /** Reads what an image shows. Overridden only by {@code openrouter.vision.model}. */
     private static final String VISION_MODEL = "google/gemini-3.8-flash";
 
-    /** The probe drained in 33; a session that never sends the end code stops here instead. */
+    /** Generous: a session that never sends the end code stops here instead of listening forever. */
     private static final int MAX_LISTENS = 200;
 
     private static final String ACTION = TaskParams.ACTION_KEY;

@@ -19,7 +19,7 @@ import java.util.regex.PatternSyntaxException;
  * @param payloadCode  the reply code a listen carries a payload under. Any code that is neither
  *                     this nor {@code endCode} stops the run with the hub's words
  * @param endCode      the reply code meaning there is nothing more to listen to
- * @param noiseMarkers words that mark a transcription as radio noise, as an indexed list:
+ * @param noiseMarkers words that mark a transcription as noise, as an indexed list:
  *                     {@code noiseMarkers.1=…}. Used only to count noise in the log — nothing is
  *                     dropped by them
  * @param fields       what the report is made of, in the order it is sent, as an indexed list:
