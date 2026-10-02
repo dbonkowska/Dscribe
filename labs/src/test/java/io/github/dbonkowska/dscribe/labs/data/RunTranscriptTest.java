@@ -661,8 +661,25 @@ class RunTranscriptTest {
         transcript.close();
 
         String written = contents(transcript);
-        assertTrue(written.contains("| c/three | 5 | 1 | 6 | 0.000050 |"), () -> written);
+        assertTrue(written.contains("| vision · c/three | 5 | 1 | 6 | 0.000050 |"), () -> written);
         assertTrue(written.contains("| **total** | 105 | 21 | 126 | 0.001050 |"), () -> written);
+    }
+
+    /**
+     * One model can serve two roles — the main loop and a delegated reader. Keyed by model alone,
+     * both land in one row, and what each role cost is gone from the only record that had it.
+     */
+    @Test
+    void keepsADelegatedRoleApartFromTheMainLoopOnTheSameModel() throws IOException {
+        RunTranscript transcript = open(root());
+
+        transcript.usage("a/one", new Usage(100, 20, 120, 0.001));
+        transcript.delegated("vision").usage("a/one", new Usage(5, 1, 6, 0.00005));
+        transcript.close();
+
+        String written = contents(transcript);
+        assertTrue(written.contains("| a/one | 100 | 20 | 120 | 0.001000 |"), () -> written);
+        assertTrue(written.contains("| vision · a/one | 5 | 1 | 6 | 0.000050 |"), () -> written);
     }
 
     /** No section at all rather than an empty table, so a run that called nothing says nothing. */

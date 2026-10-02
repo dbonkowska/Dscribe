@@ -237,9 +237,13 @@ public final class RunTranscript implements Transcript, AutoCloseable {
                 write(block.toString());
             }
 
+            /**
+             * Keyed by role as well as model: the same model can serve the main loop and this
+             * delegated call, and keyed by model alone the two would merge into one row.
+             */
             @Override
             public void usage(String model, Usage usage) {
-                RunTranscript.this.usage(model, usage);
+                RunTranscript.this.usage(label + " · " + model, usage);
             }
         };
     }
@@ -423,7 +427,8 @@ public final class RunTranscript implements Transcript, AutoCloseable {
     }
 
     /**
-     * What the run cost, per model, with a grand total.
+     * What the run cost, per model — and per role for a delegated call, as {@code label · model} — with
+     * a grand total.
      *
      * <p>Written from {@link #close}, outside the guard that skips the no-outcome note. Behind
      * that guard it would appear only on runs that died without reporting an outcome — which is
