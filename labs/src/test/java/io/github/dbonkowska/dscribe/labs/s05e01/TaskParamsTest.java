@@ -87,6 +87,22 @@ class TaskParamsTest {
         assertTrue(thrown.getMessage().contains("money"), thrown::getMessage);
     }
 
+    /**
+     * The runner puts the action into the same object the fields are merged into. A field of that
+     * name would replace it silently and send an extracted value as the action.
+     */
+    @Test
+    void refusesAFieldNamedLikeTheKeyTheRunnerReserves() {
+        String props = COMPLETE.replace("fields.2.name=size", "fields.2.name=" + TaskParams.ACTION_KEY);
+
+        RuntimeException thrown = assertThrows(RuntimeException.class,
+                () -> new JavaPropsMapper().readValue(props, TaskParams.class));
+
+        assertTrue(thrown.getMessage().contains(TaskParams.ACTION_KEY), thrown::getMessage);
+        assertTrue(thrown.getMessage().contains("actions.transmit"),
+                () -> "it has to say where the action comes from instead: " + thrown.getMessage());
+    }
+
     @Test
     void refusesAFieldNamedTwice() {
         String props = COMPLETE.replace("fields.2.name=size", "fields.2.name=place");

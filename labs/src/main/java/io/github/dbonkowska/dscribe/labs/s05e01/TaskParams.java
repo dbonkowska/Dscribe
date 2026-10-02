@@ -32,6 +32,15 @@ public record TaskParams(
         List<String> noiseMarkers,
         List<Field> fields) {
 
+    /**
+     * The key every call to the hub carries its action under. Protocol vocabulary, the same for any
+     * task — and reserved, because the report's fields are merged into the same object.
+     */
+    static final String ACTION_KEY = "action";
+
+    /** How a field is written on the way out — the only formats {@link Report#answer} knows. */
+    static final List<String> FORMATS = List.of("text", "integer", "digits", "decimal2");
+
     /** Each check refuses at the binding boundary, before the transcript is even open. */
     public TaskParams {
         verifyTask = require(verifyTask, "verifyTask");
@@ -61,6 +70,13 @@ public record TaskParams(
         }
         Set<String> seen = new HashSet<>();
         for (Field field : fields) {
+            // refused by name before the runner merges: a field of this name would replace the
+            // action without a word, and send an extracted value as it
+            if (ACTION_KEY.equals(field.name())) {
+                throw new IllegalStateException(
+                        "fields names " + ACTION_KEY + ", which the run sets itself on every call. Remove"
+                                + " it; the report's action comes from actions.transmit.");
+            }
             if (!seen.add(field.name())) {
                 throw new IllegalStateException(
                         "fields names " + field.name() + " twice. Each report field must appear once.");
@@ -69,8 +85,6 @@ public record TaskParams(
         fields = List.copyOf(fields);
     }
 
-    /** How a field is written on the way out — the only formats {@link Report#answer} knows. */
-    static final List<String> FORMATS = List.of("text", "integer", "digits", "decimal2");
 
     /**
      * One value the report carries, in the order it is sent.

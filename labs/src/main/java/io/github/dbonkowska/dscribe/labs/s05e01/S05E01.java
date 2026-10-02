@@ -69,7 +69,7 @@ public class S05E01 {
     /** The probe drained in 33; a session that never sends the end code stops here instead. */
     private static final int MAX_LISTENS = 200;
 
-    private static final String ACTION = "action";
+    private static final String ACTION = TaskParams.ACTION_KEY;
     private static final String CORPUS_SLOT = "{corpus}";
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
