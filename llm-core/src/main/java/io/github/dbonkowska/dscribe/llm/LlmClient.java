@@ -12,13 +12,18 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
 import java.util.Base64;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 public class LlmClient implements ChatTransport {
 
     private static final String CHAT_COMPLETIONS = "/chat/completions";
     private static final String AUDIO_TRANSCRIPTIONS = "/audio/transcriptions";
+    private static final String AUDIO_SPEECH = "/audio/speech";
+    private static final String AUDIO_MPEG = "audio/mpeg";
 
     // both are thread-safe and stateless once built, so every client instance can share them
     private static final HttpClient HTTP = HttpClient.newHttpClient();
@@ -135,6 +140,53 @@ public class LlmClient implements ChatTransport {
         return heard;
     }
 
+    /**
+     * {@code text} read aloud, as MP3, from the text-to-speech endpoint — the one call whose reply is
+     * not JSON. Refused without a model, recorded before the status check like every other call.
+     *
+     * <p>A recording is written to the transcript by its size, never as bytes. Anything that is not
+     * one — an error, or a 200 that turns out not to be audio — is written as the text it is,
+     * because that is the reply worth reading.
+     *
+     * <p>A 200 is still refused unless it is non-empty {@code audio/mpeg}. Otherwise the bytes would
+     * travel on as a recording, and whoever received them would reject them for a reason that
+     * points nowhere near here.
+     *
+     * <p>The reply prices nothing, so the spend is reported as null: unpriced, not free.
+     *
+     * @param instructions delivery hints such as tone; blank for none
+     */
+    public byte[] speak(String text, String voice, String instructions) {
+        requireModel();
+        String json = MAPPER.writeValueAsString(speechRequest(text, voice, instructions));
+        HttpResponse<byte[]> response = exchange(AUDIO_SPEECH, json, HttpResponse.BodyHandlers.ofByteArray());
+
+        byte[] body = response.body();
+        String contentType = response.headers().firstValue("Content-Type").orElse("");
+        boolean audio = response.statusCode() == 200 && contentType.startsWith(AUDIO_MPEG);
+
+        Map<String, Object> recorded = new LinkedHashMap<>();
+        recorded.put("audio", "<" + body.length + " bytes " + contentType + ">");
+        recorded.put("generation", response.headers().firstValue("X-Generation-Id").orElse(null));
+        transcript.append(json, audio ? MAPPER.writeValueAsString(recorded) : new String(body, StandardCharsets.UTF_8));
+
+        if (response.statusCode() != 200) {
+            throw new RuntimeException(
+                    "API error [" + response.statusCode() + "]: " + new String(body, StandardCharsets.UTF_8));
+        }
+        if (!audio) {
+            String start = new String(body, StandardCharsets.UTF_8);
+            throw new RuntimeException("Speech came back as " + (contentType.isEmpty() ? "no content type" : contentType)
+                    + ", not " + AUDIO_MPEG + ": " + start.substring(0, Math.min(200, start.length())));
+        }
+        if (body.length == 0) {
+            throw new RuntimeException("Speech came back as 0 bytes of " + AUDIO_MPEG + ": nothing to play.");
+        }
+
+        transcript.usage(attributed(null, model), null);
+        return body;
+    }
+
     private record TranscriptionReply(String text, SpeechUsage usage) {}
 
     private record SpeechUsage(
@@ -206,9 +258,25 @@ public class LlmClient implements ChatTransport {
 
     /** One POST to the provider, recorded before its status is looked at; the body of a 200. */
     private String post(String path, Object requestBody) {
-        try {
-            String json = MAPPER.writeValueAsString(requestBody);
+        String json = MAPPER.writeValueAsString(requestBody);
+        HttpResponse<String> response = exchange(path, json, HttpResponse.BodyHandlers.ofString());
 
+        // recorded before the status check: a 429 is exactly the exchange worth keeping
+        transcript.append(json, response.body());
+
+        if (response.statusCode() != 200) {
+            throw new RuntimeException("API error [" + response.statusCode() + "]: " + response.body());
+        }
+
+        return response.body();
+    }
+
+    /**
+     * The request every call makes, whatever its reply is read as — text for JSON, bytes for audio.
+     * Recording is the caller's, because only the caller knows how its reply can be written down.
+     */
+    private <T> HttpResponse<T> exchange(String path, String json, HttpResponse.BodyHandler<T> reply) {
+        try {
             HttpRequest request = HttpRequest.newBuilder()
                     .uri(URI.create(config.baseUrl() + path))
                     .header("Content-Type", "application/json")
@@ -216,16 +284,7 @@ public class LlmClient implements ChatTransport {
                     .POST(HttpRequest.BodyPublishers.ofString(json))
                     .build();
 
-            HttpResponse<String> response = HTTP.send(request, HttpResponse.BodyHandlers.ofString());
-
-            // recorded before the status check: a 429 is exactly the exchange worth keeping
-            transcript.append(json, response.body());
-
-            if (response.statusCode() != 200) {
-                throw new RuntimeException("API error [" + response.statusCode() + "]: " + response.body());
-            }
-
-            return response.body();
+            return HTTP.send(request, reply);
 
         } catch (IOException e) {
             throw new RuntimeException(e);
