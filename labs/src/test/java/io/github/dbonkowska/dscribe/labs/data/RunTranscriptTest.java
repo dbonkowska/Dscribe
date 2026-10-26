@@ -381,6 +381,43 @@ class RunTranscriptTest {
         assertTrue(shown < written.indexOf("raw exchange"), "it has to be shown above the raw block");
     }
 
+    /**
+     * A spoken turn goes to the hub as Base64 audio in the request, not the reply. Written whole,
+     * every turn of a conversation would bury the replies the file exists to show.
+     */
+    @Test
+    void elidesTheAudioARunSendsToTheHub() throws IOException {
+        String payload = Base64.getEncoder().encodeToString(new byte[3000]);
+        RunTranscript transcript = RunTranscript.open(root(), "x01", SETTINGS, List.of("hub-k3y"));
+
+        transcript.hubCall("turn", "/verify", 200, headers(Map.of()),
+                "{\"apikey\":\"hub-k3y\",\"task\":\"t\",\"answer\":{\"audio\":\"" + payload + "\"}}", "{}");
+
+        String written = contents(transcript);
+        assertTrue(written.contains("<3000 bytes elided>"), () -> written);
+        assertFalse(written.contains(payload.substring(0, 200)), "the payload must not reach the file");
+        assertFalse(written.contains("hub-k3y"), "the key must never reach disk");
+    }
+
+    /**
+     * A voice call has no messages: what it was asked to say is its {@code input}, and its reply is
+     * a recording nobody can read. Without this the heading has nothing under it.
+     */
+    @Test
+    void showsWhatAVoiceCallSaidUnderItsHeading() throws IOException {
+        RunTranscript transcript = open(root());
+
+        transcript.delegated("voice").append(
+                "{\"model\":\"tts/m\",\"input\":\"Dzień dobry\",\"voice\":\"v\",\"response_format\":\"mp3\"}",
+                "{\"audio\":\"<3 bytes audio/mpeg>\",\"generation\":\"g\"}");
+
+        String written = contents(transcript);
+        int heading = written.indexOf("· voice");
+        int shown = written.indexOf("> Dzień dobry");
+        assertTrue(heading >= 0 && shown > heading, () -> written);
+        assertTrue(shown < written.indexOf("raw exchange"), "it has to be shown above the raw block");
+    }
+
     /** Long text is what the hub's transcriptions are; spaces keep it from looking like a payload. */
     @Test
     void leavesALongTextValueInAHubReplyUntouched() throws IOException {

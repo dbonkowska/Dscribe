@@ -238,6 +238,12 @@ public final class RunTranscript implements Transcript, AutoCloseable {
 
                 sent.path("messages").forEach(message -> conversation(block, message));
 
+                // a voice call has no messages: what it was asked to say is its input, and its
+                // reply is a recording, so this is the only readable half of the exchange
+                if (sent.path("messages").isEmpty() && sent.has("input")) {
+                    quote(block, sent.path("input").asString(""));
+                }
+
                 // a chat reply answers under choices; a speech-to-text reply answers in text
                 quote(block, back.at("/choices/0/message/content").asString(back.path("text").asString("")));
 
@@ -263,7 +269,8 @@ public final class RunTranscript implements Transcript, AutoCloseable {
      * A base64 payload, replaced by its size: an image's data URI, or a bare Base64 value such as a
      * hub attachment or the audio a speech call sends.
      *
-     * <p>Applied to the delegated exchange's raw block, to hub replies, and to image parts wherever
+     * <p>Applied to the delegated exchange's raw block, to hub requests and replies — a spoken turn
+     * goes out as Base64 audio — and to image parts wherever
      * a conversation is rendered, on either path. Never to {@link #append}'s raw blocks: those stay
      * verbatim, which is the older and stronger guarantee — a serialisation fault has to show up
      * exactly as it went over the wire. Nothing sends an inline image through the main loop, so
@@ -402,7 +409,7 @@ public final class RunTranscript implements Transcript, AutoCloseable {
 
         write("\n## turn " + turn + " · hub · " + label + " → " + path + "\n\n"
                 + "request · " + status + "\n\n"
-                + "```json\n" + request.strip() + "\n```\n\n"
+                + "```json\n" + elided(request.strip()) + "\n```\n\n"
                 + "response headers\n\n" + rendered(headers) + "\n"
                 + "response\n\n"
                 + "```json\n" + elided(response.strip()) + "\n```\n");
