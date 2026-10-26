@@ -86,6 +86,21 @@ public class LlmClient implements ChatTransport {
     }
 
     /**
+     * What {@link #speak} sends, built apart from the sending so it can be asserted. Blank text or a
+     * blank voice is refused here, before a request the provider would refuse with a message a long
+     * way from this call.
+     */
+    SpeechRequest speechRequest(String text, String voice, String instructions) {
+        if (!named(text)) {
+            throw new IllegalArgumentException("Nothing to say: input is blank.");
+        }
+        if (!named(voice)) {
+            throw new IllegalArgumentException("No voice to say it in: voice is blank. Name one the model offers.");
+        }
+        return new SpeechRequest(model, text, voice, named(instructions) ? instructions : null, SpeechRequest.MP3);
+    }
+
+    /**
      * The speech endpoint names its usage differently from chat — {@code input_tokens} where chat
      * says {@code prompt_tokens} — so it is read through its own shape and then carried as the one
      * {@link Usage} every report sums. Read with chat's names it would parse as zero tokens and
