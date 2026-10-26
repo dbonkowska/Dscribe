@@ -381,6 +381,43 @@ class RunTranscriptTest {
         assertTrue(shown < written.indexOf("raw exchange"), "it has to be shown above the raw block");
     }
 
+    /**
+     * A spoken turn goes to the hub as Base64 audio in the request, not the reply. Written whole,
+     * every turn of a conversation would bury the replies the file exists to show.
+     */
+    @Test
+    void elidesTheAudioARunSendsToTheHub() throws IOException {
+        String payload = Base64.getEncoder().encodeToString(new byte[3000]);
+        RunTranscript transcript = RunTranscript.open(root(), "x01", SETTINGS, List.of("hub-k3y"));
+
+        transcript.hubCall("turn", "/verify", 200, headers(Map.of()),
+                "{\"apikey\":\"hub-k3y\",\"task\":\"t\",\"answer\":{\"audio\":\"" + payload + "\"}}", "{}");
+
+        String written = contents(transcript);
+        assertTrue(written.contains("<3000 bytes elided>"), () -> written);
+        assertFalse(written.contains(payload.substring(0, 200)), "the payload must not reach the file");
+        assertFalse(written.contains("hub-k3y"), "the key must never reach disk");
+    }
+
+    /**
+     * A voice call has no messages: what it was asked to say is its {@code input}, and its reply is
+     * a recording nobody can read. Without this the heading has nothing under it.
+     */
+    @Test
+    void showsWhatAVoiceCallSaidUnderItsHeading() throws IOException {
+        RunTranscript transcript = open(root());
+
+        transcript.delegated("voice").append(
+                "{\"model\":\"tts/m\",\"input\":\"Dzień dobry\",\"voice\":\"v\",\"response_format\":\"mp3\"}",
+                "{\"audio\":\"<3 bytes audio/mpeg>\",\"generation\":\"g\"}");
+
+        String written = contents(transcript);
+        int heading = written.indexOf("· voice");
+        int shown = written.indexOf("> Dzień dobry");
+        assertTrue(heading >= 0 && shown > heading, () -> written);
+        assertTrue(shown < written.indexOf("raw exchange"), "it has to be shown above the raw block");
+    }
+
     /** Long text is what the hub's transcriptions are; spaces keep it from looking like a payload. */
     @Test
     void leavesALongTextValueInAHubReplyUntouched() throws IOException {
@@ -692,6 +729,38 @@ class RunTranscriptTest {
 
         String written = contents(transcript);
         assertFalse(written.contains("## usage"), () -> written);
+    }
+
+    /**
+     * A call the provider priced at nothing it told us about. Summed as zero it would read as a free
+     * call; left out, the table would claim to cover a run it does not.
+     */
+    @Test
+    void marksARoleTheProviderNeverPricedAsNotReported() throws IOException {
+        RunTranscript transcript = open(root());
+
+        transcript.usage("voice · tts/m", null);
+        transcript.usage("voice · tts/m", null);
+        transcript.close();
+
+        String written = contents(transcript);
+        assertTrue(written.contains("| voice · tts/m | not reported | not reported | not reported | not reported |"),
+                () -> written);
+    }
+
+    /** The total is what was reported, and says how many calls it does not include. */
+    @Test
+    void saysHowManyCallsTheTotalLeavesOut() throws IOException {
+        RunTranscript transcript = open(root());
+
+        transcript.usage("voice · tts/m", null);
+        transcript.usage("some/model", new Usage(10, 5, 15, 0.01));
+        transcript.usage("voice · tts/m", null);
+        transcript.close();
+
+        String written = contents(transcript);
+        assertTrue(written.contains("| some/model | 10 | 5 | 15 | 0.010000 |"), () -> written);
+        assertTrue(written.contains("| **total** | 10 | 5 | 15 | 0.010000 (excl. 2 unreported) |"), () -> written);
     }
 
     /**

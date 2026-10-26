@@ -156,7 +156,7 @@ class LabsConfigTest {
     @Test
     void offersTheVisionSlotAsAConfigCarryingTheSameCredentials() {
         LlmConfig vision =
-                new LabsConfig.Llm("k", "main/m", "vis/m", null, "https://llm.test").vision();
+                new LabsConfig.Llm("k", "main/m", "vis/m", null, null, "https://llm.test").vision();
 
         assertEquals("vis/m", vision.model(), "only the model differs");
         assertEquals("k", vision.apiKey());
@@ -166,7 +166,7 @@ class LabsConfigTest {
     @Test
     void leavesTheVisionSlotUnnamedWhenNothingConfiguresIt() {
         // then the runner's own pin fills it, exactly as it does for the main slot
-        assertNull(new LabsConfig.Llm("k", "main/m", null, null, "https://llm.test").vision().model());
+        assertNull(new LabsConfig.Llm("k", "main/m", null, null, null, "https://llm.test").vision().model());
     }
 
     /**
@@ -176,7 +176,7 @@ class LabsConfigTest {
     @Test
     void offersTheSpeechSlotAsAConfigCarryingTheSameCredentials() {
         LlmConfig speech =
-                new LabsConfig.Llm("k", "main/m", "vis/m", "speech/m", "https://llm.test").speech();
+                new LabsConfig.Llm("k", "main/m", "vis/m", "speech/m", null, "https://llm.test").speech();
 
         assertEquals("speech/m", speech.model(), "only the model differs");
         assertEquals("k", speech.apiKey());
@@ -185,6 +185,25 @@ class LabsConfigTest {
 
     @Test
     void leavesTheSpeechSlotUnnamedWhenNothingConfiguresIt() {
-        assertNull(new LabsConfig.Llm("k", "main/m", "vis/m", null, "https://llm.test").speech().model());
+        assertNull(new LabsConfig.Llm("k", "main/m", "vis/m", null, null, "https://llm.test").speech().model());
+    }
+
+    /**
+     * A fourth slot, and the speech slot's mirror: an override meant for the chat model must not
+     * send text to a model that cannot speak, and one meant for hearing must not reach speaking.
+     */
+    @Test
+    void offersTheVoiceSlotAsAConfigCarryingTheSameCredentials() {
+        LlmConfig voice =
+                new LabsConfig.Llm("k", "main/m", "vis/m", "speech/m", "tts/m", "https://llm.test").voice();
+
+        assertEquals("tts/m", voice.model(), "only the model differs");
+        assertEquals("k", voice.apiKey());
+        assertEquals("https://llm.test", voice.baseUrl());
+    }
+
+    @Test
+    void leavesTheVoiceSlotUnnamedWhenNothingConfiguresIt() {
+        assertNull(new LabsConfig.Llm("k", "main/m", "vis/m", "speech/m", null, "https://llm.test").voice().model());
     }
 }

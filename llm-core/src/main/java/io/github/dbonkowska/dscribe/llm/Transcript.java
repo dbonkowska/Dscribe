@@ -24,6 +24,8 @@ public interface Transcript {
      * way to lose a delegated call's spend.
      *
      * @param model the model that actually answered, which is not always the one asked for
+     * @param usage null when the provider answered without pricing the call — absent, not zero, so
+     *              an implementation that sums these must count a null rather than add it
      */
     default void usage(String model, Usage usage) {}
 

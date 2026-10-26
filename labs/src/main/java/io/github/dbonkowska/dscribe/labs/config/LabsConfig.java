@@ -26,8 +26,10 @@ public record LabsConfig(Llm llm, Hub hub, Path lessonsDir, Path dataDir) {
      * @param visionModel the model for a call a runner delegates to a second model — null when
      *                    nothing configures one, exactly like {@code model}
      * @param speechModel the model for a speech-to-text call — null when nothing configures one
+     * @param voiceModel  the model for a text-to-speech call — null when nothing configures one
      */
-    public record Llm(String apiKey, String model, String visionModel, String speechModel, String baseUrl)
+    public record Llm(
+            String apiKey, String model, String visionModel, String speechModel, String voiceModel, String baseUrl)
             implements LlmConfig {
 
         /**
@@ -51,6 +53,15 @@ public record LabsConfig(Llm llm, Hub hub, Path lessonsDir, Path dataDir) {
         public LlmConfig speech() {
             return new Slot(apiKey, speechModel, baseUrl);
         }
+
+        /**
+         * The same credentials and endpoint, with the voice slot's model — the speech slot's mirror.
+         * An override meant for the chat model must not send text to a model that cannot speak, and
+         * one meant for hearing must not reach speaking.
+         */
+        public LlmConfig voice() {
+            return new Slot(apiKey, voiceModel, baseUrl);
+        }
     }
 
     /** A view of one model slot as a configuration in its own right. */
@@ -72,6 +83,7 @@ public record LabsConfig(Llm llm, Hub hub, Path lessonsDir, Path dataDir) {
                 resolveModel(props, "openrouter.model"),
                 resolveModel(props, "openrouter.vision.model"),
                 resolveModel(props, "openrouter.speech.model"),
+                resolveModel(props, "openrouter.voice.model"),
                 orDefault(props, "openrouter.base.url", DEFAULT_LLM_BASE_URL)
         );
 

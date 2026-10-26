@@ -70,17 +70,26 @@ public final class RunTranscript implements Transcript, AutoCloseable {
      * One model's running total. Tokens widen to {@code long} because they are summed over a
      * whole run; cost stays a {@code double}, which is what the provider sends and is exact
      * enough for a figure printed to six places.
+     *
+     * <p>{@code priced} and {@code unreported} count calls rather than infer them: a row with no
+     * priced call has no figure to print, and a total has to say how many calls it leaves out.
      */
-    private record Spend(long prompt, long completion, long total, double cost) {
+    private record Spend(long prompt, long completion, long total, double cost, int priced, int unreported) {
 
-        static final Spend NONE = new Spend(0, 0, 0, 0);
+        static final Spend NONE = new Spend(0, 0, 0, 0, 0, 0);
 
+        /** A null usage is a call the provider did not price — counted, never summed as zero. */
         Spend plus(Usage usage) {
+            if (usage == null) {
+                return new Spend(prompt, completion, total, cost, priced, unreported + 1);
+            }
             return new Spend(
                     prompt + usage.promptTokens(),
                     completion + usage.completionTokens(),
                     total + usage.totalTokens(),
-                    cost + usage.cost());
+                    cost + usage.cost(),
+                    priced + 1,
+                    unreported);
         }
 
         Spend plus(Spend other) {
@@ -88,7 +97,9 @@ public final class RunTranscript implements Transcript, AutoCloseable {
                     prompt + other.prompt,
                     completion + other.completion,
                     total + other.total,
-                    cost + other.cost);
+                    cost + other.cost,
+                    priced + other.priced,
+                    unreported + other.unreported);
         }
     }
 
@@ -227,6 +238,12 @@ public final class RunTranscript implements Transcript, AutoCloseable {
 
                 sent.path("messages").forEach(message -> conversation(block, message));
 
+                // a voice call has no messages: what it was asked to say is its input, and its
+                // reply is a recording, so this is the only readable half of the exchange
+                if (sent.path("messages").isEmpty() && sent.has("input")) {
+                    quote(block, sent.path("input").asString(""));
+                }
+
                 // a chat reply answers under choices; a speech-to-text reply answers in text
                 quote(block, back.at("/choices/0/message/content").asString(back.path("text").asString("")));
 
@@ -252,7 +269,8 @@ public final class RunTranscript implements Transcript, AutoCloseable {
      * A base64 payload, replaced by its size: an image's data URI, or a bare Base64 value such as a
      * hub attachment or the audio a speech call sends.
      *
-     * <p>Applied to the delegated exchange's raw block, to hub replies, and to image parts wherever
+     * <p>Applied to the delegated exchange's raw block, to hub requests and replies — a spoken turn
+     * goes out as Base64 audio — and to image parts wherever
      * a conversation is rendered, on either path. Never to {@link #append}'s raw blocks: those stay
      * verbatim, which is the older and stronger guarantee — a serialisation fault has to show up
      * exactly as it went over the wire. Nothing sends an inline image through the main loop, so
@@ -391,7 +409,7 @@ public final class RunTranscript implements Transcript, AutoCloseable {
 
         write("\n## turn " + turn + " · hub · " + label + " → " + path + "\n\n"
                 + "request · " + status + "\n\n"
-                + "```json\n" + request.strip() + "\n```\n\n"
+                + "```json\n" + elided(request.strip()) + "\n```\n\n"
                 + "response headers\n\n" + rendered(headers) + "\n"
                 + "response\n\n"
                 + "```json\n" + elided(response.strip()) + "\n```\n");
@@ -459,12 +477,22 @@ public final class RunTranscript implements Transcript, AutoCloseable {
         write(table.toString());
     }
 
+    /**
+     * A row with no priced call reads "not reported" throughout, not zeros: zero is a figure, and
+     * this one was never given. A row mixing both — the total, in practice — prints what was reported
+     * and names how many calls that leaves out.
+     */
     private static void row(StringBuilder table, String label, Spend spend) {
+        if (spend.priced() == 0 && spend.unreported() > 0) {
+            table.append("| ").append(label).append(" | not reported".repeat(4)).append(" |\n");
+            return;
+        }
         table.append("| ").append(label)
                 .append(" | ").append(spend.prompt())
                 .append(" | ").append(spend.completion())
                 .append(" | ").append(spend.total())
                 .append(" | ").append(String.format(Locale.ROOT, "%.6f", spend.cost()))
+                .append(spend.unreported() > 0 ? " (excl. " + spend.unreported() + " unreported)" : "")
                 .append(" |\n");
     }
 
