@@ -70,17 +70,26 @@ public final class RunTranscript implements Transcript, AutoCloseable {
      * One model's running total. Tokens widen to {@code long} because they are summed over a
      * whole run; cost stays a {@code double}, which is what the provider sends and is exact
      * enough for a figure printed to six places.
+     *
+     * <p>{@code priced} and {@code unreported} count calls rather than infer them: a row with no
+     * priced call has no figure to print, and a total has to say how many calls it leaves out.
      */
-    private record Spend(long prompt, long completion, long total, double cost) {
+    private record Spend(long prompt, long completion, long total, double cost, int priced, int unreported) {
 
-        static final Spend NONE = new Spend(0, 0, 0, 0);
+        static final Spend NONE = new Spend(0, 0, 0, 0, 0, 0);
 
+        /** A null usage is a call the provider did not price — counted, never summed as zero. */
         Spend plus(Usage usage) {
+            if (usage == null) {
+                return new Spend(prompt, completion, total, cost, priced, unreported + 1);
+            }
             return new Spend(
                     prompt + usage.promptTokens(),
                     completion + usage.completionTokens(),
                     total + usage.totalTokens(),
-                    cost + usage.cost());
+                    cost + usage.cost(),
+                    priced + 1,
+                    unreported);
         }
 
         Spend plus(Spend other) {
@@ -88,7 +97,9 @@ public final class RunTranscript implements Transcript, AutoCloseable {
                     prompt + other.prompt,
                     completion + other.completion,
                     total + other.total,
-                    cost + other.cost);
+                    cost + other.cost,
+                    priced + other.priced,
+                    unreported + other.unreported);
         }
     }
 
@@ -459,12 +470,22 @@ public final class RunTranscript implements Transcript, AutoCloseable {
         write(table.toString());
     }
 
+    /**
+     * A row with no priced call reads "not reported" throughout, not zeros: zero is a figure, and
+     * this one was never given. A row mixing both — the total, in practice — prints what was reported
+     * and names how many calls that leaves out.
+     */
     private static void row(StringBuilder table, String label, Spend spend) {
+        if (spend.priced() == 0 && spend.unreported() > 0) {
+            table.append("| ").append(label).append(" | not reported".repeat(4)).append(" |\n");
+            return;
+        }
         table.append("| ").append(label)
                 .append(" | ").append(spend.prompt())
                 .append(" | ").append(spend.completion())
                 .append(" | ").append(spend.total())
                 .append(" | ").append(String.format(Locale.ROOT, "%.6f", spend.cost()))
+                .append(spend.unreported() > 0 ? " (excl. " + spend.unreported() + " unreported)" : "")
                 .append(" |\n");
     }
 

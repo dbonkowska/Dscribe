@@ -695,6 +695,38 @@ class RunTranscriptTest {
     }
 
     /**
+     * A call the provider priced at nothing it told us about. Summed as zero it would read as a free
+     * call; left out, the table would claim to cover a run it does not.
+     */
+    @Test
+    void marksARoleTheProviderNeverPricedAsNotReported() throws IOException {
+        RunTranscript transcript = open(root());
+
+        transcript.usage("voice · tts/m", null);
+        transcript.usage("voice · tts/m", null);
+        transcript.close();
+
+        String written = contents(transcript);
+        assertTrue(written.contains("| voice · tts/m | not reported | not reported | not reported | not reported |"),
+                () -> written);
+    }
+
+    /** The total is what was reported, and says how many calls it does not include. */
+    @Test
+    void saysHowManyCallsTheTotalLeavesOut() throws IOException {
+        RunTranscript transcript = open(root());
+
+        transcript.usage("voice · tts/m", null);
+        transcript.usage("some/model", new Usage(10, 5, 15, 0.01));
+        transcript.usage("voice · tts/m", null);
+        transcript.close();
+
+        String written = contents(transcript);
+        assertTrue(written.contains("| some/model | 10 | 5 | 15 | 0.010000 |"), () -> written);
+        assertTrue(written.contains("| **total** | 10 | 5 | 15 | 0.010000 (excl. 2 unreported) |"), () -> written);
+    }
+
+    /**
      * What the run decided, as against what it sent. A pipeline reaches the hub having already
      * made every choice that matters — what the rules caught, whether the gate passed, which unit
      * it trusted — and none of that is visible in a request body.
