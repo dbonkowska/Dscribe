@@ -57,6 +57,21 @@ class ResilientHubTest {
     }
 
     /**
+     * A refusal that is not worth retrying is an answer, and its status is part of it — a caller
+     * that ends a conversation on a 400 cannot tell one from a 200 by the body alone.
+     */
+    @Test
+    void handsBackTheStatusOfTheReplyItStoppedOn(@TempDir Path root) {
+        Sender sender = new Sender(failed(502), new HubResponse(400, TestHeaders.of(Map.of()), "{\"code\":-7}"));
+
+        HubResponse response = hub(sender, root).send("turn", Map.of("q", "x"));
+
+        assertEquals(400, response.status());
+        assertEquals("{\"code\":-7}", response.body());
+        assertEquals(List.of(Duration.ofSeconds(1)), slept, "the 502 was waited out, the 400 was not");
+    }
+
+    /**
      * A server that has just refused for asking too often knows when to come back better than any
      * local curve does. Ignoring it is how a run earns a long block.
      */

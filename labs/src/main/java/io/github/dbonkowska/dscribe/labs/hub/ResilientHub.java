@@ -68,11 +68,22 @@ public final class ResilientHub {
      * @throws IllegalStateException when every attempt has been spent
      */
     public String call(String label, Object answer) {
+        return send(label, answer).body();
+    }
+
+    /**
+     * {@link #call}, keeping the status: the reply the retries stopped on, whole. For a caller that
+     * acts on a refusal rather than reading it — a 400 ends a conversation, and its body alone does
+     * not say it was one.
+     *
+     * @throws IllegalStateException when every attempt has been spent
+     */
+    public HubResponse send(String label, Object answer) {
         for (int attempt = 1; ; attempt++) {
             HubResponse response = hub.send(label + " · attempt " + attempt, taskName, answer);
 
             if (!response.isRetryable()) {
-                return response.body();
+                return response;
             }
 
             Optional<Duration> backoff = retry.backoffAfter(attempt);

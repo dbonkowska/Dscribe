@@ -20,7 +20,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class ClassificationTest {
 
     private static final TaskParams TASK = new TaskParams(
-            "x-task", "[{]F[}]", "open", "v1",
+            "x-task", "[{]F[}]", "open", "sound", "v1",
             List.of("x", "y"),
             List.of(new TaskParams.Stage("s1"), new TaskParams.Stage("s2 {chosen}")),
             List.of(new TaskParams.Interrupt("a", "answer a")));

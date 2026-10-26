@@ -25,6 +25,7 @@ class TaskParamsTest {
             verifyTask=x-task
             flagPattern=[{]F[}]
             startAction=open
+            audioKey=sound
             voice=v1
             candidates.1=x
             candidates.2=y
@@ -56,6 +57,7 @@ class TaskParamsTest {
         assertEquals("x-task", params.verifyTask());
         assertEquals("[{]F[}]", params.flagPattern());
         assertEquals("open", params.startAction());
+        assertEquals("sound", params.audioKey());
         assertEquals("v1", params.voice());
         assertEquals(List.of("x", "y"), params.candidates());
         assertEquals(
@@ -68,7 +70,7 @@ class TaskParamsTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"verifyTask", "flagPattern", "startAction", "voice"})
+    @ValueSource(strings = {"verifyTask", "flagPattern", "startAction", "audioKey", "voice"})
     void refusesABlankRequiredKey(String key) {
         String message = refusal(COMPLETE.replaceAll("(?m)^" + key + "=.*$", key + "=  "));
 

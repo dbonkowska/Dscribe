@@ -21,7 +21,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class DialogueTest {
 
     private static final TaskParams TASK = new TaskParams(
-            "x-task", "[{]F[}]", "open", "v1",
+            "x-task", "[{]F[}]", "open", "sound", "v1",
             List.of("x", "y"),
             List.of(new TaskParams.Stage("s1"), new TaskParams.Stage("s2"), new TaskParams.Stage("s3 {chosen}")),
             List.of(new TaskParams.Interrupt("a", "answer a"), new TaskParams.Interrupt("b", "answer b")));

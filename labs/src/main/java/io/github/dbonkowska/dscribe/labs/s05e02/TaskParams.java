@@ -17,6 +17,8 @@ import java.util.regex.PatternSyntaxException;
  * @param verifyTask  the task name the hub expects
  * @param flagPattern a regex matching a reply that carries the result
  * @param startAction the action that opens a session
+ * @param audioKey    the answer key every turn's recording is sent under. A name the run sends, so
+ *                    the exercise's — the reply's own audio field is read under a name kept in Java
  * @param voice       the voice the turns are spoken in. A runner choice rather than the
  *                    exercise's, but it is only valid for one voice model, so it lives beside the
  *                    turns it speaks rather than in Java
@@ -31,6 +33,7 @@ public record TaskParams(
         String verifyTask,
         String flagPattern,
         String startAction,
+        String audioKey,
         String voice,
         List<String> candidates,
         List<Stage> stages,
@@ -50,17 +53,19 @@ public record TaskParams(
         flagPattern = require(flagPattern, "flagPattern");
         compiles(flagPattern, "flagPattern");
         startAction = require(startAction, "startAction");
+        audioKey = require(audioKey, "audioKey");
         voice = require(voice, "voice");
 
-        candidates = nonEmpty(candidates, "candidates", "candidates.1=…");
+        candidates = nonEmpty(candidates, "candidates", "candidates.1=…").stream()
+                .map(candidate -> require(candidate, "candidates.N"))
+                .toList();
         Set<String> seen = new HashSet<>();
         for (String candidate : candidates) {
-            if (!seen.add(require(candidate, "candidates.N"))) {
+            if (!seen.add(candidate)) {
                 throw new IllegalStateException(
                         "candidates lists " + candidate + " twice. Each candidate must appear once.");
             }
         }
-        candidates = candidates.stream().map(String::strip).toList();
 
         stages = nonEmpty(stages, "stages", "stages.1.say=…");
         int slotted = 0;

@@ -157,12 +157,15 @@ class SpeechTest {
     @Test
     void refusesASuccessfulReplyThatIsNotAudio() throws IOException {
         serve(200, "application/json", null, "{\"error\":\"x\"}".getBytes(StandardCharsets.UTF_8));
+        Recording recording = new Recording();
 
         RuntimeException thrown = assertThrows(RuntimeException.class,
-                () -> served("tts/m", new Recording()).speak("x", "v1", null));
+                () -> served("tts/m", recording).speak("x", "v1", null));
 
         assertTrue(thrown.getMessage().contains("application/json"), thrown::getMessage);
         assertTrue(thrown.getMessage().contains("{\"error\":\"x\"}"), thrown::getMessage);
+        // kept as the text it is, not as a size: it is the reply worth reading
+        assertEquals(List.of("{\"error\":\"x\"}"), recording.appended);
     }
 
     @Test
