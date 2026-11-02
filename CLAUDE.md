@@ -78,4 +78,4 @@ and secrets are redacted before anything is written.
 Test what the next lesson depends on; don't test what the hub already verifies. Shared
 infrastructure (`SchemaUtils`, `LabsConfig`, `HubClient`, `Lesson`) fails silently and is
 reused, so it gets tests. Per-lesson runners are verified by `hub.verify` rejecting a wrong
-answer, so they don't. Full reasoning in `Atelier/Dscribe/Constitution.md`.
+answer, so they don't. Full reasoning in `Atelier/05 - Projects/Dscribe/Constitution.md`.

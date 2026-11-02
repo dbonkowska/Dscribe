@@ -115,6 +115,39 @@ class LessonTest {
         assertTrue(thrown.getMessage().contains("eval.json"), thrown::getMessage);
     }
 
+    /**
+     * A lesson's bundle can share the issue folder the workflow creates for it,
+     * {@code {N} - {id} {name}}, so the notes about a lesson and its inputs live in one place.
+     */
+    @Test
+    void findsTheLessonInAnIssueFolderLedByItsId(@TempDir Path root) throws IOException {
+        Path folder = Files.createDirectories(root.resolve("11 - x01 Some capability"));
+        Files.writeString(folder.resolve("system.md"), "found", StandardCharsets.UTF_8);
+
+        assertEquals("found", Lesson.of(configPointingAt(root), "x01").prompt("system.md"));
+    }
+
+    @Test
+    void doesNotTakeALongerIdThatSharesThePrefix(@TempDir Path root) throws IOException {
+        Files.createDirectories(root.resolve("3 - x011 Other capability"));
+        LabsConfig config = configPointingAt(root);
+
+        assertThrows(IllegalStateException.class, () -> Lesson.of(config, "x01"));
+    }
+
+    @Test
+    void refusesToGuessWhenTwoFoldersClaimTheSameLesson(@TempDir Path root) throws IOException {
+        Files.createDirectories(root.resolve("1 - x01 First"));
+        Files.createDirectories(root.resolve("2 - x01 Second"));
+        LabsConfig config = configPointingAt(root);
+
+        IllegalStateException thrown =
+                assertThrows(IllegalStateException.class, () -> Lesson.of(config, "x01"));
+
+        assertTrue(thrown.getMessage().contains("1 - x01 First"), thrown.getMessage());
+        assertTrue(thrown.getMessage().contains("2 - x01 Second"), thrown.getMessage());
+    }
+
     @Test
     void namesTheMissingDirectoryWhenTheLessonIsNotThere(@TempDir Path root) {
         LabsConfig config = configPointingAt(root);
