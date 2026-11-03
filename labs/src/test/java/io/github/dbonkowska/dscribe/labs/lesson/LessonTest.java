@@ -3,6 +3,8 @@ package io.github.dbonkowska.dscribe.labs.lesson;
 import io.github.dbonkowska.dscribe.labs.config.LabsConfig;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -75,6 +77,38 @@ class LessonTest {
         Files.writeString(lesson(root, "x01").resolve("system.md"), "jaźń", StandardCharsets.UTF_8);
 
         assertEquals("jaźń", Lesson.of(configPointingAt(root), "x01").prompt("system.md"));
+    }
+
+    @Test
+    void returnsARequiredPromptThatHasText(@TempDir Path root) throws IOException {
+        Files.writeString(lesson(root, "x01").resolve("system.md"), "be brief", StandardCharsets.UTF_8);
+
+        assertEquals("be brief", Lesson.of(configPointingAt(root), "x01").requiredPrompt("system.md"));
+    }
+
+    /**
+     * A blank prompt would buy a run of a model that was told nothing, so it is refused before anything
+     * is spent — and the refusal names the file and the folder, since a lesson can live in either kind.
+     */
+    @ParameterizedTest
+    @ValueSource(strings = {"", "  \n\t"})
+    void refusesARequiredPromptThatIsBlank(String content, @TempDir Path root) throws IOException {
+        Files.writeString(lesson(root, "x01").resolve("system.md"), content, StandardCharsets.UTF_8);
+        Lesson lesson = Lesson.of(configPointingAt(root), "x01");
+
+        IllegalStateException thrown =
+                assertThrows(IllegalStateException.class, () -> lesson.requiredPrompt("system.md"));
+
+        assertTrue(thrown.getMessage().contains("system.md"), thrown.getMessage());
+        assertTrue(thrown.getMessage().contains("x01"), thrown.getMessage());
+    }
+
+    /** The refusal is opt-in: a runner reading a file that may legitimately be empty still can. */
+    @Test
+    void stillReadsAnEmptyPromptWhenNotRequired(@TempDir Path root) throws IOException {
+        Files.writeString(lesson(root, "x01").resolve("system.md"), "", StandardCharsets.UTF_8);
+
+        assertEquals("", Lesson.of(configPointingAt(root), "x01").prompt("system.md"));
     }
 
     /**

@@ -85,6 +85,24 @@ public record Lesson(Path dir) {
     }
 
     /**
+     * {@link #prompt}, refusing a file that is empty or whitespace only. Call it before the transcript
+     * opens: a blank prompt would buy a run of a model that was told nothing.
+     *
+     * <p>A separate method rather than a change to {@code prompt}, so the refusal is opt-in: a runner
+     * that reads a file which may legitimately be empty keeps reading it.
+     *
+     * @throws IllegalStateException when the file is blank, naming it and the lesson's folder
+     */
+    public String requiredPrompt(String fileName) {
+        String prompt = prompt(fileName);
+        if (prompt.isBlank()) {
+            throw new IllegalStateException(
+                    fileName + " in the lesson bundle '" + dir.getFileName() + "' is blank. Write it before running.");
+        }
+        return prompt;
+    }
+
+    /**
      * Binds {@code task.properties} to a record.
      *
      * <p>Read as UTF-8 explicitly — {@link java.util.Properties} would default to
