@@ -60,8 +60,8 @@ public class S03E05 {
 
         // Read and refused before the transcript opens: a blank prompt would buy a run of a model
         // that was told nothing.
-        String system = required(lesson, "system.md");
-        String user = required(lesson, "user.md");
+        String system = lesson.requiredPrompt("system.md");
+        String user = lesson.requiredPrompt("user.md");
         Pattern flagPattern = Pattern.compile(task.flagPattern());
 
         Map<String, String> settings = new LinkedHashMap<>();
@@ -113,14 +113,5 @@ public class S03E05 {
             transcript.outcome("Earned `" + flag + "`.");
             System.out.println("Transcript: " + transcript.file());
         }
-    }
-
-    private static String required(Lesson lesson, String fileName) {
-        String prompt = lesson.prompt(fileName);
-        if (prompt.isBlank()) {
-            throw new IllegalStateException(
-                    fileName + " in the s03e05 lesson bundle is blank. Write it before running.");
-        }
-        return prompt;
     }
 }

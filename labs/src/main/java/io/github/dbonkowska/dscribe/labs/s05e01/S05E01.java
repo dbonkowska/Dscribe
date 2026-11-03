@@ -86,9 +86,9 @@ public class S05E01 {
         Pattern flagPattern = Pattern.compile(task.flagPattern());
 
         // Everything refusable is refused here, before the session is opened or a token spent.
-        String system = nonBlank(lesson.prompt("system.md"), "system.md");
-        String userTemplate = nonBlank(lesson.prompt("user.md"), "user.md");
-        String visionPrompt = nonBlank(lesson.prompt("vision/system.md"), "vision/system.md");
+        String system = lesson.requiredPrompt("system.md");
+        String userTemplate = lesson.requiredPrompt("user.md");
+        String visionPrompt = lesson.requiredPrompt("vision/system.md");
         int slots = userTemplate.split(Pattern.quote(CORPUS_SLOT), -1).length - 1;
         if (slots != 1) {
             throw new IllegalStateException(
@@ -282,13 +282,6 @@ public class S05E01 {
     private static boolean containsAny(String text, List<String> markers) {
         String lower = text.toLowerCase(Locale.ROOT);
         return markers.stream().anyMatch(marker -> lower.contains(marker.toLowerCase(Locale.ROOT)));
-    }
-
-    private static String nonBlank(String prompt, String name) {
-        if (prompt.isBlank()) {
-            throw new IllegalStateException(name + " in the s05e01 lesson bundle is blank. Write it before running.");
-        }
-        return prompt;
     }
 
     /** A reply the run can go on from: a 200 with a JSON body. Anything else ends the run here. */

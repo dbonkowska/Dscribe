@@ -122,10 +122,7 @@ public class S05E02 {
         Lesson lesson = Lesson.of(labsConfig, LESSON);
         TaskParams task = lesson.task(TaskParams.class);
         Pattern flagPattern = Pattern.compile(task.flagPattern());
-        String system = lesson.prompt("system.md");
-        if (system.isBlank()) {
-            throw new IllegalStateException("system.md in the s05e02 lesson bundle is blank. Write it before running.");
-        }
+        String system = lesson.requiredPrompt("system.md");
         ResponseFormat classification = ResponseFormat.jsonSchema("classification", Classification.schema(task));
 
         Path runDir = Artifacts.of(labsConfig.dataDir(), LESSON).file(RUN.format(LocalDateTime.now()));
