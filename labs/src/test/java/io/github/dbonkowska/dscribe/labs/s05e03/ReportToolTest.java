@@ -99,6 +99,18 @@ class ReportToolTest {
         assertTrue(sent.isEmpty(), () -> "sent: " + sent);
     }
 
+    /** A number sent despite the schema has already been through a double, so its precision can't be trusted. */
+    @Test
+    void refusesAValueThatIsNotText(@TempDir Path root) {
+        Map<String, Object> values = new LinkedHashMap<>(Map.of("when", "2024-03-01", "town", "Ab", "x", 10.5, "y", "2"));
+
+        IllegalArgumentException thrown =
+                assertThrows(IllegalArgumentException.class, () -> tool(root, -1).handler().apply(values));
+
+        assertTrue(thrown.getMessage().contains("x") && thrown.getMessage().contains("string"), thrown.getMessage());
+        assertTrue(sent.isEmpty(), () -> "sent: " + sent);
+    }
+
     /** The precision is the source's; rescaling it, or writing an exponent, changes the value the hub compares. */
     @Test
     void writesADecimalExactlyAsGiven(@TempDir Path root) {

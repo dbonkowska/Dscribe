@@ -28,7 +28,7 @@ import java.util.regex.Pattern;
  *
  * <p>The exploration is the model's: which files exist, how they link, which record is the one. Code
  * holds what it can check itself. {@link ShellGuard} lets through only commands it can identify as
- * read-only, because the shell's user may run {@code tar} as root. {@link ReportTool} takes the values
+ * read-only, because a wrong command could destroy what the run is reading. {@link ReportTool} takes the values
  * as the records state them, moves the date by the bundle's shift, and prints the answer, so the
  * calendar arithmetic and the formatting are never the model's.
  *
@@ -50,8 +50,8 @@ public class S05E03 {
     private static final String MODEL = "google/gemini-3.8-flash";
 
     /**
-     * Counts model round-trips. Sampling three files, a few searches, following two ids and a report
-     * fit well inside it, with room for a wrong report and a second look.
+     * Counts model round-trips. A survey of the files, a few searches, following each link to the file
+     * that resolves it and a report fit well inside it, with room for a wrong report and a second look.
      */
     private static final int MAX_ITERATIONS = 50;
 

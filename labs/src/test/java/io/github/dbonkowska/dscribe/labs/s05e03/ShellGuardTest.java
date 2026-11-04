@@ -2,6 +2,7 @@ package io.github.dbonkowska.dscribe.labs.s05e03;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
@@ -9,11 +10,10 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * The only thing between a command the model wrote and a shell that can run {@code tar} as root. It
+ * The only thing between a command the model wrote and a shell that runs whatever it is given. It
  * accepts what it can identify as read-only and refuses everything else, so the cases below are of two
- * kinds: commands a model reading files will write, which must pass, and every way the probe showed —
- * or the shell allows — of getting a write or a second command past a check that looks only at the
- * first word.
+ * kinds: commands a model reading files will write, which must pass, and every way the shell allows of
+ * getting a write or a second command past a check that looks only at the first word.
  *
  * <p>The refusals put the bad part second wherever there is a second place: a check that reads only
  * the first command of a chain passes the first-position version and nothing else. Paths and file
@@ -43,6 +43,11 @@ class ShellGuardTest {
             "stat f; basename /srv/f; dirname /srv/f",
             "grep \"\\$HOME\" f",
             "ls;",
+            "grep 'x$' f",
+            "grep \"x$\" f",
+            "grep x$ f",
+            "grep -c a f \\\n| wc -l",
+            "sort --reverse f",
     })
     void passesAReadOnlyCommand(String command) {
         assertDoesNotThrow(() -> ShellGuard.check(command));
@@ -51,13 +56,13 @@ class ShellGuardTest {
     @ParameterizedTest
     @ValueSource(strings = {
             "ls; rm x",
-            "cat f | tar -xf y",
-            "grep a f && sudo tar -cf /srv/f x",
+            "cat f | tee g",
+            "grep a f && sudo rm x",
             "head f || sed -i s/a/b/ f",
             "ls\nrm x",
     })
     void refusesAForbiddenCommandAnywhereInAChain(String command) {
-        assertRefused(command);
+        assertRefused(command, "is not one of the commands allowed");
     }
 
     @ParameterizedTest
@@ -70,13 +75,13 @@ class ShellGuardTest {
             "ls >(cat)",
     })
     void refusesSubstitution(String command) {
-        assertRefused(command);
+        assertRefused(command, "substitution");
     }
 
     @ParameterizedTest
     @ValueSource(strings = {"cat f > g", "cat f >> g", "sort < f", "ls &> g", "ls 2> g", "ls 2>/dev/nullx", "ls 1>/dev/null"})
     void refusesARedirect(String command) {
-        assertRefused(command);
+        assertRefused(command, "redirect");
     }
 
     @ParameterizedTest
@@ -94,30 +99,59 @@ class ShellGuardTest {
             "  ",
     })
     void refusesEverythingElseThatIsNotAnAllowedCommand(String command) {
-        assertRefused(command);
+        assertRefused(command, "Nothing was sent");
     }
 
+    /**
+     * The shell expands these before the command runs, so the guard and the shell would disagree about
+     * what the words are: {@code find .${IFS}-delete} is one word to a reader that keeps {@code $}, and
+     * {@code find . -delete} to the shell. A {@code $} anywhere but at the end of a word is refused.
+     */
     @ParameterizedTest
     @ValueSource(strings = {
-            "find . -delete",
-            "find . -exec cat {} ;",
-            "find . -execdir cat {} +",
-            "find . -ok cat {} ;",
-            "find . -fprint g",
-            "find . '-delete'",
-            "sort -o g f",
-            "sort -no g f",
-            "sort --output=g f",
-            "sort --output g f",
-            "tail -f f",
-            "tail -F f",
-            "tail --follow f",
-            "tail -n 5 -f f",
-            "uniq f g",
-            "ls; uniq -c f g",
+            "find .${IFS}-delete",
+            "find . -$X",
+            "find . \"$X\"",
+            "find . $'-delete'",
+            "find . $\"-delete\"",
+            "grep $1 f",
+            "grep $@ f",
     })
-    void refusesAnOptionThatWritesOrNeverReturns(String command) {
-        assertRefused(command);
+    void refusesAnExpansionItCannotSeeThrough(String command) {
+        assertRefused(command, "expansion");
+    }
+
+    /** A backslash before a newline is deleted by the shell, joining the two halves into one word. */
+    @ParameterizedTest
+    @ValueSource(strings = {"find . -ex\\\nec cat {} \\;", "find . \"-del\\\nete\""})
+    void readsALineContinuationAsTheShellDoes(String command) {
+        assertRefused(command, "find -");
+    }
+
+    /** Each case names the rule that must refuse it, so a rule removed can't hide behind another one. */
+    @ParameterizedTest
+    @CsvSource(delimiter = '#', quoteCharacter = '"', value = {
+            "find . -delete # find -delete",
+            "find . -exec cat {} ; # find -exec",
+            "find . -execdir cat {} + # find -execdir",
+            "find . -ok cat {} ; # find -ok",
+            "find . -fprint g # find -fprint",
+            "find . '-delete' # find -delete",
+            "sort -o g f # sort -o",
+            "sort -no g f # sort -no",
+            "sort --output=g f # sort --output=g",
+            "sort --output g f # sort --output",
+            "sort --out=g f # sort --out=g",
+            "tail -f f # tail -f",
+            "tail -F f # tail -F",
+            "tail --follow f # tail --follow",
+            "tail --fol f # tail --fol",
+            "tail -n 5 -f f # tail -f",
+            "uniq f g # uniq with a second file",
+            "ls; uniq -c f g # uniq with a second file",
+    })
+    void refusesAnOptionThatWritesOrNeverReturns(String command, String rule) {
+        assertRefused(command, rule);
     }
 
     /** The model reads this and tries again, so it has to say what the guard does accept. */
@@ -131,8 +165,10 @@ class ShellGuardTest {
         assertTrue(message.contains("2>/dev/null"), message);
     }
 
-    private static void assertRefused(String command) {
+    /** Refused, saying nothing was sent, and for the reason given rather than for some other one. */
+    private static void assertRefused(String command, String reason) {
         IllegalArgumentException thrown = assertThrows(IllegalArgumentException.class, () -> ShellGuard.check(command));
         assertTrue(thrown.getMessage().contains("Nothing was sent"), thrown.getMessage());
+        assertTrue(thrown.getMessage().contains(reason), () -> "expected the reason '" + reason + "': " + thrown.getMessage());
     }
 }
