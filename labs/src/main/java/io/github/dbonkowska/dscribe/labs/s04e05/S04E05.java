@@ -90,10 +90,7 @@ public class S04E05 {
 
         // Read and refused before the transcript opens: a blank prompt would buy a run of a model
         // that was told nothing, and a user.md without its slot would hand over no needs at all.
-        String system = lesson.prompt("system.md");
-        if (system.isBlank()) {
-            throw new IllegalStateException("system.md in the s04e05 lesson bundle is blank. Write it before running.");
-        }
+        String system = lesson.requiredPrompt("system.md");
         String userTemplate = lesson.prompt("user.md");
         int slots = userTemplate.split(Pattern.quote(NEEDS_SLOT), -1).length - 1;
         if (slots != 1) {

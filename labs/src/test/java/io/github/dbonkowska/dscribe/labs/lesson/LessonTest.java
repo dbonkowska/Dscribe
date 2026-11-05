@@ -3,6 +3,8 @@ package io.github.dbonkowska.dscribe.labs.lesson;
 import io.github.dbonkowska.dscribe.labs.config.LabsConfig;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -77,6 +79,38 @@ class LessonTest {
         assertEquals("jaźń", Lesson.of(configPointingAt(root), "x01").prompt("system.md"));
     }
 
+    @Test
+    void returnsARequiredPromptThatHasText(@TempDir Path root) throws IOException {
+        Files.writeString(lesson(root, "x01").resolve("system.md"), "be brief", StandardCharsets.UTF_8);
+
+        assertEquals("be brief", Lesson.of(configPointingAt(root), "x01").requiredPrompt("system.md"));
+    }
+
+    /**
+     * A blank prompt would buy a run of a model that was told nothing, so it is refused before anything
+     * is spent — and the refusal names the file and the folder, since a lesson can live in either kind.
+     */
+    @ParameterizedTest
+    @ValueSource(strings = {"", "  \n\t"})
+    void refusesARequiredPromptThatIsBlank(String content, @TempDir Path root) throws IOException {
+        Files.writeString(lesson(root, "x01").resolve("system.md"), content, StandardCharsets.UTF_8);
+        Lesson lesson = Lesson.of(configPointingAt(root), "x01");
+
+        IllegalStateException thrown =
+                assertThrows(IllegalStateException.class, () -> lesson.requiredPrompt("system.md"));
+
+        assertTrue(thrown.getMessage().contains("system.md"), thrown.getMessage());
+        assertTrue(thrown.getMessage().contains("x01"), thrown.getMessage());
+    }
+
+    /** The refusal is opt-in: a runner reading a file that may legitimately be empty still can. */
+    @Test
+    void stillReadsAnEmptyPromptWhenNotRequired(@TempDir Path root) throws IOException {
+        Files.writeString(lesson(root, "x01").resolve("system.md"), "", StandardCharsets.UTF_8);
+
+        assertEquals("", Lesson.of(configPointingAt(root), "x01").prompt("system.md"));
+    }
+
     /**
      * A bundle file that is neither a prompt nor properties. Both elements and every component
      * have to bind — a component whose name misses leaves a null, and a label carrying a null
@@ -113,6 +147,39 @@ class LessonTest {
                 assertThrows(RuntimeException.class, () -> lesson.jsonList("eval.json", Label.class));
 
         assertTrue(thrown.getMessage().contains("eval.json"), thrown::getMessage);
+    }
+
+    /**
+     * A lesson's bundle can share the issue folder the workflow creates for it,
+     * {@code {N} - {id} {name}}, so the notes about a lesson and its inputs live in one place.
+     */
+    @Test
+    void findsTheLessonInAnIssueFolderLedByItsId(@TempDir Path root) throws IOException {
+        Path folder = Files.createDirectories(root.resolve("11 - x01 Some capability"));
+        Files.writeString(folder.resolve("system.md"), "found", StandardCharsets.UTF_8);
+
+        assertEquals("found", Lesson.of(configPointingAt(root), "x01").prompt("system.md"));
+    }
+
+    @Test
+    void doesNotTakeALongerIdThatSharesThePrefix(@TempDir Path root) throws IOException {
+        Files.createDirectories(root.resolve("3 - x011 Other capability"));
+        LabsConfig config = configPointingAt(root);
+
+        assertThrows(IllegalStateException.class, () -> Lesson.of(config, "x01"));
+    }
+
+    @Test
+    void refusesToGuessWhenTwoFoldersClaimTheSameLesson(@TempDir Path root) throws IOException {
+        Files.createDirectories(root.resolve("1 - x01 First"));
+        Files.createDirectories(root.resolve("2 - x01 Second"));
+        LabsConfig config = configPointingAt(root);
+
+        IllegalStateException thrown =
+                assertThrows(IllegalStateException.class, () -> Lesson.of(config, "x01"));
+
+        assertTrue(thrown.getMessage().contains("1 - x01 First"), thrown.getMessage());
+        assertTrue(thrown.getMessage().contains("2 - x01 Second"), thrown.getMessage());
     }
 
     @Test

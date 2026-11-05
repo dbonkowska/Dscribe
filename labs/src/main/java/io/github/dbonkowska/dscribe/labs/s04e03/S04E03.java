@@ -64,10 +64,7 @@ public class S04E03 {
 
         // Read and refused before the transcript opens: a blank prompt would buy a run of a model
         // that was told nothing.
-        String system = lesson.prompt("system.md");
-        if (system.isBlank()) {
-            throw new IllegalStateException("system.md in the s04e03 lesson bundle is blank. Write it before running.");
-        }
+        String system = lesson.requiredPrompt("system.md");
         Pattern flagPattern = Pattern.compile(task.flagPattern());
 
         Map<String, String> settings = new LinkedHashMap<>();

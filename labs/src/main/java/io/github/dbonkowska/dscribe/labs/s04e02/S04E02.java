@@ -71,10 +71,7 @@ public class S04E02 {
 
         // Checked before the transcript opens: a prompt that cannot be rendered is found here, not
         // inside the window after the slowest job has already been waited for.
-        String system = lesson.prompt("system.md");
-        if (system.isBlank()) {
-            throw new IllegalStateException("system.md in the s04e02 lesson bundle is blank. Write it before running.");
-        }
+        String system = lesson.requiredPrompt("system.md");
         List<String> slots = new ArrayList<>();
         slots.add(task.documentation());
         slots.addAll(task.jobs());

@@ -72,10 +72,7 @@ public class S04E04 {
 
         // Checked before anything is fetched: a prompt that cannot be rendered is found here, not
         // after the archive, the help call and the parse.
-        String system = lesson.prompt("system.md");
-        if (system.isBlank()) {
-            throw new IllegalStateException("system.md in the s04e04 lesson bundle is blank. Write it before running.");
-        }
+        String system = lesson.requiredPrompt("system.md");
         String userTemplate = lesson.prompt("user.md");
         requireEachSlotOnce(userTemplate, SLOTS);
 
