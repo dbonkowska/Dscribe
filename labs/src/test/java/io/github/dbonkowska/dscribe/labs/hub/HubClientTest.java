@@ -48,6 +48,8 @@ class HubClientTest {
     private HttpServer server;
     /** Written on the server thread, read on the test thread. */
     private volatile String received;
+    /** Method and URI as the server saw them, written and read like {@link #received}. */
+    private volatile String receivedRequest;
 
     @AfterEach
     void stopServer() {
@@ -271,6 +273,45 @@ class HubClientTest {
         assertEquals("{\"code\":-1}", served(root).post("x", "/api/x", new Probe("why")));
     }
 
+    @Test
+    void readSendsTheKeyAsAQueryParameterOfAGet(@TempDir Path root) throws IOException {
+        serveAt("/api/x", 200, Map.of(), "{\"ok\":true}");
+
+        HubResponse response = served(root).read("x", "/api/x");
+
+        assertEquals("GET /api/x?key=" + KEY, receivedRequest);
+        assertEquals("{\"ok\":true}", response.body());
+    }
+
+    /** A flaky endpoint is the reason this returns a response: the caller decides to come back. */
+    @Test
+    void readHandsBackAFailedAttemptRatherThanThrowing(@TempDir Path root) throws IOException {
+        serveAt("/api/x", 502, Map.of(), "bad gateway");
+
+        HubResponse response = served(root).read("x", "/api/x");
+
+        assertEquals(502, response.status());
+        assertEquals("bad gateway", response.body());
+    }
+
+    /**
+     * Built without the key among its secrets, on purpose. Redaction would otherwise mask a read
+     * that recorded the keyed URL, and this test would pass for the wrong reason.
+     */
+    @Test
+    void readRecordsThePathWithoutTheKeyEvenWithNoRedaction(@TempDir Path root) throws IOException {
+        serveAt("/api/x", 502, Map.of(), "bad gateway");
+        RunTranscript unredacted =
+                RunTranscript.open(root.resolve("logs"), "x01", Map.of(), List.of());
+
+        hub(unredacted).read("x", "/api/x");
+
+        String written = Files.readString(unredacted.file(), StandardCharsets.UTF_8);
+        assertTrue(written.contains("/api/x"), () -> written);
+        assertTrue(written.contains("bad gateway"), "the failed read is recorded too");
+        assertFalse(written.contains(KEY), "the key must never reach disk");
+    }
+
     /**
      * Serves the keyed data path, handing out each body in turn and repeating the last — so a
      * second read can legitimately differ from the first.
@@ -306,6 +347,7 @@ class HubClientTest {
         server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         server.createContext(path, exchange -> {
             received = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
+            receivedRequest = exchange.getRequestMethod() + " " + exchange.getRequestURI();
             headers.forEach((name, value) -> exchange.getResponseHeaders().add(name, value));
             byte[] out = body.getBytes(StandardCharsets.UTF_8);
             exchange.sendResponseHeaders(status, out.length);

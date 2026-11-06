@@ -7,6 +7,7 @@ import io.github.dbonkowska.dscribe.labs.data.RunTranscript;
 
 import java.io.IOException;
 import java.net.URI;
+import java.net.URLEncoder;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
@@ -197,6 +198,34 @@ public class HubClient {
             return new HubResponse(response.statusCode(), response.headers(), response.body());
         } catch (InterruptedException | IOException e) {
             throw new RuntimeException(e);
+        }
+    }
+
+    /**
+     * One GET of an API endpoint that takes the key as a query parameter, returned whole.
+     *
+     * <p>Does not throw on a non-2xx, like {@link #exchange}. The keyed URL stays inside this
+     * method: the transcript and any exception get the bare path, so nothing depends on redaction
+     * to keep the key off disk.
+     */
+    public HubResponse read(String label, String path) {
+        String key = URLEncoder.encode(hubApiKey, StandardCharsets.UTF_8);
+        try {
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(hubBaseUrl + path + "?key=" + key))
+                    .GET()
+                    .build();
+
+            HttpResponse<String> response =
+                    http.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+
+            // before the status is looked at: a failed read is the one worth explaining later
+            transcript.hubCall(
+                    label, path, response.statusCode(), response.headers(), "", response.body());
+
+            return new HubResponse(response.statusCode(), response.headers(), response.body());
+        } catch (InterruptedException | IOException e) {
+            throw new RuntimeException("Hub read failed: " + path, e);
         }
     }
 
