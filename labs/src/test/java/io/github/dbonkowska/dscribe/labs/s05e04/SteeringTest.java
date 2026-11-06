@@ -29,10 +29,10 @@ class SteeringTest {
     private static final Steering STEERING = new Steering(ROWS, AHEAD, LEFT, RIGHT);
 
     /** One combination of what a move is chosen from. */
-    private record Situation(int row, int rock, Bearing bearing, int target) {
+    private record Situation(int row, int obstacle, Bearing bearing, int target) {
 
         Optional<String> move() {
-            return STEERING.move(row, rock, bearing, target);
+            return STEERING.move(row, obstacle, bearing, target);
         }
 
         int landing(String move) {
@@ -42,10 +42,10 @@ class SteeringTest {
 
     private static void everySituation(Consumer<Situation> check) {
         for (int row : rows()) {
-            for (int rock : rows()) {
+            for (int obstacle : rows()) {
                 for (Bearing bearing : Bearing.values()) {
                     for (int target : rows()) {
-                        check.accept(new Situation(row, rock, bearing, target));
+                        check.accept(new Situation(row, obstacle, bearing, target));
                     }
                 }
             }
@@ -82,7 +82,7 @@ class SteeringTest {
     @Test
     void neverEntersTheCurrentObstaclesRow() {
         everySituation(s -> s.move().ifPresent(move ->
-                assertNotEquals(s.rock(), s.landing(move), s::toString)));
+                assertNotEquals(s.obstacle(), s.landing(move), s::toString)));
     }
 
     /**
@@ -92,7 +92,7 @@ class SteeringTest {
     @Test
     void survivesEveryObstacleTheBearingAllows() {
         everySituation(s -> {
-            if (s.row() == s.rock()) {
+            if (s.row() == s.obstacle()) {
                 return;
             }
             s.move().ifPresent(move -> {
