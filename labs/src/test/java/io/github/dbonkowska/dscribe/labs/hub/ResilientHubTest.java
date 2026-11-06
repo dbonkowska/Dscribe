@@ -132,6 +132,45 @@ class ResilientHubTest {
         assertTrue(written.contains("status 503 on attempt 1"), () -> written);
     }
 
+    /**
+     * Any call, not only verify: the caller supplies the attempt, so one instance can serve
+     * several endpoints under one policy.
+     */
+    @Test
+    void retriesAnyCallAndLabelsEveryAttempt(@TempDir Path root) {
+        Sender sender = new Sender(failed(502), failed(502), ok("{\"done\":true}"));
+
+        HubResponse response = hub(new Sender(), root)
+                .retrying("scan", label -> sender.send(label, TASK, Map.of()));
+
+        assertEquals("{\"done\":true}", response.body());
+        assertEquals(List.of("scan · attempt 1", "scan · attempt 2", "scan · attempt 3"), sender.labels);
+        assertEquals(List.of(Duration.ofSeconds(1), Duration.ofSeconds(2)), slept);
+    }
+
+    @Test
+    void retryingReturnsARefusalAtOnce(@TempDir Path root) {
+        Sender sender = new Sender(new HubResponse(400, TestHeaders.of(Map.of()), "{\"code\":-7}"));
+
+        HubResponse response = hub(new Sender(), root)
+                .retrying("scan", label -> sender.send(label, TASK, Map.of()));
+
+        assertEquals(400, response.status());
+        assertEquals(1, sender.labels.size());
+        assertEquals(List.of(), slept);
+    }
+
+    @Test
+    void retryingThrowsOnceTheAttemptsAreSpent(@TempDir Path root) {
+        Sender sender = new Sender(failed(502), failed(502), failed(502), failed(502));
+        ResilientHub hub = hub(new Sender(), root);
+
+        assertThrows(IllegalStateException.class,
+                () -> hub.retrying("scan", label -> sender.send(label, TASK, Map.of())));
+
+        assertEquals(POLICY.maxAttempts(), sender.labels.size());
+    }
+
     // --- fixtures -----------------------------------------------------------------------------
 
     private ResilientHub hub(Sender sender, Path root) {

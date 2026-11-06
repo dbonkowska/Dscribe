@@ -7,6 +7,7 @@ import org.slf4j.LoggerFactory;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Optional;
+import java.util.function.Function;
 
 /**
  * Talks to a hub endpoint that fails on purpose: it retries what is worth retrying, and waits as
@@ -79,23 +80,36 @@ public final class ResilientHub {
      * @throws IllegalStateException when every attempt has been spent
      */
     public HubResponse send(String label, Object answer) {
-        for (int attempt = 1; ; attempt++) {
-            HubResponse response = hub.send(label + " · attempt " + attempt, taskName, answer);
+        return retrying(label, attempted -> hub.send(attempted, taskName, answer));
+    }
+
+    /**
+     * The retry loop for any call, so one instance can serve several endpoints under one policy.
+     *
+     * <p>{@code attempt} receives the label of the attempt it is making, so a call that took four
+     * tries reads as four entries in the transcript. It must be safe to repeat: this cannot know
+     * whether a failed attempt took effect, and that risk stays with the caller, who can name it.
+     *
+     * @throws IllegalStateException when every attempt has been spent
+     */
+    public HubResponse retrying(String label, Function<String, HubResponse> attempt) {
+        for (int attempts = 1; ; attempts++) {
+            HubResponse response = attempt.apply(label + " · attempt " + attempts);
 
             if (!response.isRetryable()) {
                 return response;
             }
 
-            Optional<Duration> backoff = retry.backoffAfter(attempt);
+            Optional<Duration> backoff = retry.backoffAfter(attempts);
             if (backoff.isEmpty()) {
                 throw new IllegalStateException(
-                        "The hub kept refusing " + label + " after " + attempt
+                        "The hub kept refusing " + label + " after " + attempts
                                 + " attempts; last status " + response.status());
             }
 
             // the server's own number wins where it gave one
             Duration wait = limits.resetAfter(response.headers(), Instant.now()).orElse(backoff.get());
-            waitOut(wait, "status " + response.status() + " on attempt " + attempt);
+            waitOut(wait, "status " + response.status() + " on attempt " + attempts);
         }
     }
 
