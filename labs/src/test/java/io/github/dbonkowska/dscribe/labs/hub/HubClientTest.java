@@ -248,6 +248,30 @@ class HubClientTest {
     }
 
     /**
+     * The status is the point of the call. A refusal reads like any other body, so a caller that
+     * has to tell one from a reply gets the whole response rather than parsing the text for a hint
+     * of it.
+     */
+    @Test
+    void exchangeKeepsTheStatusAndBodyOfARefusal(@TempDir Path root) throws IOException {
+        serveAt("/api/x", 429, Map.of(), "{\"code\":-1}");
+
+        HubResponse response = served(root).exchange("x", "/api/x", new Probe("why"));
+
+        assertEquals(429, response.status());
+        assertEquals("{\"code\":-1}", response.body());
+        assertTrue(received.contains("\"" + KEY + "\""), () -> received);
+        assertTrue(received.contains("\"why\""), () -> received);
+    }
+
+    @Test
+    void postStillReturnsTheBodyAloneOnAnyStatus(@TempDir Path root) throws IOException {
+        serveAt("/api/x", 429, Map.of(), "{\"code\":-1}");
+
+        assertEquals("{\"code\":-1}", served(root).post("x", "/api/x", new Probe("why")));
+    }
+
+    /**
      * Serves the keyed data path, handing out each body in turn and repeating the last — so a
      * second read can legitimately differ from the first.
      */
@@ -274,8 +298,13 @@ class HubClientTest {
 
     /** Captures what arrived, so the request the caller never assembled by hand is assertable. */
     private void serve(int status, Map<String, String> headers, String body) throws IOException {
+        serveAt("/verify", status, headers, body);
+    }
+
+    private void serveAt(String path, int status, Map<String, String> headers, String body)
+            throws IOException {
         server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
-        server.createContext("/verify", exchange -> {
+        server.createContext(path, exchange -> {
             received = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
             headers.forEach((name, value) -> exchange.getResponseHeaders().add(name, value));
             byte[] out = body.getBytes(StandardCharsets.UTF_8);

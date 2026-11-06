@@ -168,6 +168,17 @@ public class HubClient {
      * the model reads exactly what the hub said, including its error messages.
      */
     public String post(String label, String path, Object body) {
+        return exchange(label, path, body).body();
+    }
+
+    /**
+     * {@link #post}, keeping the status: one attempt at an API endpoint, returned whole.
+     *
+     * <p>Does not throw on a non-2xx, for the reason {@link #send} does not. Whether a refusal
+     * ends the game or is worth another try is the caller's decision, and a body alone does not
+     * say it was one.
+     */
+    public HubResponse exchange(String label, String path, Object body) {
         try {
             ObjectNode json = mapper.valueToTree(body);
             json.put("apikey", hubApiKey);
@@ -183,7 +194,7 @@ public class HubClient {
                     http.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
             transcript.hubCall(
                     label, path, response.statusCode(), response.headers(), sent, response.body());
-            return response.body();
+            return new HubResponse(response.statusCode(), response.headers(), response.body());
         } catch (InterruptedException | IOException e) {
             throw new RuntimeException(e);
         }
