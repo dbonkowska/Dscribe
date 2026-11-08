@@ -30,8 +30,8 @@ class TaskParamsTest {
             commandKey=op
             start=begin
             ahead=on
-            left=port
-            right=star
+            left=lf
+            right=rt
             rows=5
             columns=9
             clearMarker=all fine
@@ -92,7 +92,7 @@ class TaskParamsTest {
                 .filter(line -> !line.startsWith("replies."))
                 .collect(Collectors.joining(System.lineSeparator()));
 
-        assertTrue(refusal(props).contains("replies"), () -> refusal(props));
+        assertTrue(refusal(props).contains("replies is missing"), () -> refusal(props));
     }
 
     /** Named at startup, not at the first refused step, where a typo would cost the game in play. */
@@ -149,7 +149,7 @@ class TaskParamsTest {
 
     @ParameterizedTest
     @ValueSource(strings = {"verifyTask=x-task", "statusPath=/api/x", "hintPath=/api/y", "commandKey=op",
-            "start=begin", "ahead=on", "left=port", "right=star", "clearMarker=all fine", "numberKey=tune",
+            "start=begin", "ahead=on", "left=lf", "right=rt", "clearMarker=all fine", "numberKey=tune",
             "codeKey=token", "hashKey=proof", "digestSuffix=-x", "replies.hint=/note"})
     void refusesABlankKey(String line) {
         String key = line.substring(0, line.indexOf('='));
