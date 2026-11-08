@@ -1,5 +1,6 @@
 package io.github.dbonkowska.dscribe.labs.s03e05;
 
+import io.github.dbonkowska.dscribe.labs.hub.HubPath;
 import java.util.regex.Pattern;
 import java.util.regex.PatternSyntaxException;
 

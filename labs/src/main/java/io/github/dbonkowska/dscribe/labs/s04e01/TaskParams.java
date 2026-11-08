@@ -135,8 +135,8 @@ public record TaskParams(
     }
 
     /**
-     * Copied from s03e05's {@code HubPath} rather than imported: a type from a finished lesson would
-     * freeze it. Without the leading slash, {@code @elsewhere/x} turns the base's host into user
+     * The same rule as the hub package's {@code HubPath}, kept apart because this path is appended
+     * to the panel's base URL rather than the hub's. Without the leading slash, {@code @elsewhere/x} turns the base's host into user
      * info and sends the request to {@code elsewhere}. A scheme or a leading {@code //} would be
      * appended harmlessly, but either means an address was written where a path belongs. A path that
      * does not parse would fail at call time as a crash, so it is refused here instead.

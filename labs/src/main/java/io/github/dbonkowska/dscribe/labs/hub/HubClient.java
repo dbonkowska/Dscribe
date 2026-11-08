@@ -7,6 +7,7 @@ import io.github.dbonkowska.dscribe.labs.data.RunTranscript;
 
 import java.io.IOException;
 import java.net.URI;
+import java.net.URLEncoder;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
@@ -168,6 +169,17 @@ public class HubClient {
      * the model reads exactly what the hub said, including its error messages.
      */
     public String post(String label, String path, Object body) {
+        return exchange(label, path, body).body();
+    }
+
+    /**
+     * {@link #post}, keeping the status: one attempt at an API endpoint, returned whole.
+     *
+     * <p>Does not throw on a non-2xx, for the reason {@link #send} does not. Whether a refusal
+     * ends the game or is worth another try is the caller's decision, and a body alone does not
+     * say it was one.
+     */
+    public HubResponse exchange(String label, String path, Object body) {
         try {
             ObjectNode json = mapper.valueToTree(body);
             json.put("apikey", hubApiKey);
@@ -183,9 +195,39 @@ public class HubClient {
                     http.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
             transcript.hubCall(
                     label, path, response.statusCode(), response.headers(), sent, response.body());
-            return response.body();
+            return new HubResponse(response.statusCode(), response.headers(), response.body());
         } catch (InterruptedException | IOException e) {
             throw new RuntimeException(e);
+        }
+    }
+
+    /**
+     * One GET of an API endpoint that takes the key as a query parameter, returned whole.
+     *
+     * <p>Does not throw on a non-2xx, like {@link #exchange}. The keyed URL stays inside this
+     * method: the transcript and any exception get the bare path, so nothing depends on redaction
+     * to keep the key off disk.
+     */
+    public HubResponse read(String label, String path) {
+        // parsed before the key is added: URI.create quotes whatever it cannot parse in its message
+        URI endpoint = URI.create(hubBaseUrl + path);
+        String key = URLEncoder.encode(hubApiKey, StandardCharsets.UTF_8);
+        try {
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(endpoint + "?key=" + key))
+                    .GET()
+                    .build();
+
+            HttpResponse<String> response =
+                    http.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+
+            // before the status is looked at: a failed read is the one worth explaining later
+            transcript.hubCall(
+                    label, path, response.statusCode(), response.headers(), "", response.body());
+
+            return new HubResponse(response.statusCode(), response.headers(), response.body());
+        } catch (InterruptedException | IOException e) {
+            throw new RuntimeException("Hub read failed: " + path, e);
         }
     }
 

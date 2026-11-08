@@ -1,5 +1,6 @@
 package io.github.dbonkowska.dscribe.labs.s03e05;
 
+import io.github.dbonkowska.dscribe.labs.hub.HubPath;
 import tools.jackson.core.JacksonException;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;

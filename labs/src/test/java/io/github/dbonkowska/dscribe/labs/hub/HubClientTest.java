@@ -48,6 +48,8 @@ class HubClientTest {
     private HttpServer server;
     /** Written on the server thread, read on the test thread. */
     private volatile String received;
+    /** Method and URI as the server saw them, written and read like {@link #received}. */
+    private volatile String receivedRequest;
 
     @AfterEach
     void stopServer() {
@@ -248,6 +250,80 @@ class HubClientTest {
     }
 
     /**
+     * The status is the point of the call. A refusal reads like any other body, so a caller that
+     * has to tell one from a reply gets the whole response rather than parsing the text for a hint
+     * of it.
+     */
+    @Test
+    void exchangeKeepsTheStatusAndBodyOfARefusal(@TempDir Path root) throws IOException {
+        serveAt("/api/x", 429, Map.of(), "{\"code\":-1}");
+
+        HubResponse response = served(root).exchange("x", "/api/x", new Probe("why"));
+
+        assertEquals(429, response.status());
+        assertEquals("{\"code\":-1}", response.body());
+        assertTrue(received.contains("\"" + KEY + "\""), () -> received);
+        assertTrue(received.contains("\"why\""), () -> received);
+    }
+
+    @Test
+    void postStillReturnsTheBodyAloneOnAnyStatus(@TempDir Path root) throws IOException {
+        serveAt("/api/x", 429, Map.of(), "{\"code\":-1}");
+
+        assertEquals("{\"code\":-1}", served(root).post("x", "/api/x", new Probe("why")));
+    }
+
+    @Test
+    void readSendsTheKeyAsAQueryParameterOfAGet(@TempDir Path root) throws IOException {
+        serveAt("/api/x", 200, Map.of(), "{\"ok\":true}");
+
+        HubResponse response = served(root).read("x", "/api/x");
+
+        assertEquals("GET /api/x?key=" + KEY, receivedRequest);
+        assertEquals("{\"ok\":true}", response.body());
+    }
+
+    /** A flaky endpoint is the reason this returns a response: the caller decides to come back. */
+    @Test
+    void readHandsBackAFailedAttemptRatherThanThrowing(@TempDir Path root) throws IOException {
+        serveAt("/api/x", 502, Map.of(), "bad gateway");
+
+        HubResponse response = served(root).read("x", "/api/x");
+
+        assertEquals(502, response.status());
+        assertEquals("bad gateway", response.body());
+    }
+
+    /**
+     * Built without the key among its secrets, on purpose. Redaction would otherwise mask a read
+     * that recorded the keyed URL, and this test would pass for the wrong reason.
+     */
+    @Test
+    void readRecordsThePathWithoutTheKeyEvenWithNoRedaction(@TempDir Path root) throws IOException {
+        serveAt("/api/x", 502, Map.of(), "bad gateway");
+        RunTranscript unredacted =
+                RunTranscript.open(root.resolve("logs"), "x01", Map.of(), List.of());
+
+        hub(unredacted).read("x", "/api/x");
+
+        String written = Files.readString(unredacted.file(), StandardCharsets.UTF_8);
+        assertTrue(written.contains("/api/x"), () -> written);
+        assertTrue(written.contains("bad gateway"), "the failed read is recorded too");
+        assertFalse(written.contains(KEY), "the key must never reach disk");
+    }
+
+    /** {@code URI.create} quotes what it could not parse, so the key must not be in that string yet. */
+    @Test
+    void readKeepsTheKeyOutOfWhatItThrowsOnAPathThatDoesNotParse(@TempDir Path root) {
+        RuntimeException thrown =
+                assertThrows(RuntimeException.class, () -> hub(root).read("x", "/api/x y"));
+
+        for (Throwable link = thrown; link != null; link = link.getCause()) {
+            assertFalse(String.valueOf(link.getMessage()).contains(KEY), link::getMessage);
+        }
+    }
+
+    /**
      * Serves the keyed data path, handing out each body in turn and repeating the last — so a
      * second read can legitimately differ from the first.
      */
@@ -274,9 +350,15 @@ class HubClientTest {
 
     /** Captures what arrived, so the request the caller never assembled by hand is assertable. */
     private void serve(int status, Map<String, String> headers, String body) throws IOException {
+        serveAt("/verify", status, headers, body);
+    }
+
+    private void serveAt(String path, int status, Map<String, String> headers, String body)
+            throws IOException {
         server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
-        server.createContext("/verify", exchange -> {
+        server.createContext(path, exchange -> {
             received = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
+            receivedRequest = exchange.getRequestMethod() + " " + exchange.getRequestURI();
             headers.forEach((name, value) -> exchange.getResponseHeaders().add(name, value));
             byte[] out = body.getBytes(StandardCharsets.UTF_8);
             exchange.sendResponseHeaders(status, out.length);
