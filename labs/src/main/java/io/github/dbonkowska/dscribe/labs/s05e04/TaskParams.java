@@ -1,5 +1,7 @@
 package io.github.dbonkowska.dscribe.labs.s05e04;
 
+import io.github.dbonkowska.dscribe.labs.hub.HubPath;
+
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.List;
@@ -27,7 +29,7 @@ import java.util.regex.PatternSyntaxException;
  * @param columns         the grid's width, read the same way
  * @param clearMarker     the phrase a clear status reply carries, written plainly: it is compared on
  *                        letters alone
- * @param frequencyKey    the key a refused step's number is read and sent under
+ * @param numberKey       the key a refused step's number is read and sent under
  * @param codeKey         the key a refused step's code is read under
  * @param hashKey         the key the digest is sent under
  * @param digestAlgorithm a {@link MessageDigest} algorithm name
@@ -50,7 +52,7 @@ public record TaskParams(
         Integer rows,
         Integer columns,
         String clearMarker,
-        String frequencyKey,
+        String numberKey,
         String codeKey,
         String hashKey,
         String digestAlgorithm,
@@ -63,8 +65,8 @@ public record TaskParams(
         verifyTask = require(verifyTask, "verifyTask");
         flagPattern = require(flagPattern, "flagPattern");
         compiles(flagPattern, "flagPattern");
-        statusPath = require(statusPath, "statusPath");
-        hintPath = require(hintPath, "hintPath");
+        statusPath = plainPath(statusPath, "statusPath");
+        hintPath = plainPath(hintPath, "hintPath");
         commandKey = require(commandKey, "commandKey");
         start = require(start, "start");
         ahead = require(ahead, "ahead");
@@ -73,7 +75,7 @@ public record TaskParams(
         positive(rows, "rows");
         positive(columns, "columns");
         clearMarker = require(clearMarker, "clearMarker");
-        frequencyKey = require(frequencyKey, "frequencyKey");
+        numberKey = require(numberKey, "numberKey");
         codeKey = require(codeKey, "codeKey");
         hashKey = require(hashKey, "hashKey");
         digestAlgorithm = require(digestAlgorithm, "digestAlgorithm");
@@ -110,6 +112,17 @@ public record TaskParams(
                 pointer(replies.obstacleRow(), "replies.obstacleRow"),
                 pointer(replies.ended(), "replies.ended"),
                 pointer(replies.hint(), "replies.hint"));
+    }
+
+    /** Refused here rather than at the first call, since the path decides where the key goes. */
+    private static String plainPath(String value, String key) {
+        String path = require(value, key);
+        if (!HubPath.isPlain(path)) {
+            throw new IllegalStateException(
+                    key + " is " + path + ", which is not a plain path. It is appended to the hub's base URL"
+                            + " with the key attached, so it must start with a single / and hold no address.");
+        }
+        return path;
     }
 
     private static String pointer(String value, String key) {

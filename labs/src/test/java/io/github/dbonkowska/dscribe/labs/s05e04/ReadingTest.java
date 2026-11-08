@@ -44,7 +44,7 @@ class ReadingTest {
                     "fLag': true
                 }""";
 
-        assertEquals(new Reading.Targeted(137, "aB3dE0"), DECODER.read(body));
+        assertEquals(new Reading.Refused(137, "aB3dE0"), DECODER.read(body));
     }
 
     /** The digest is taken over the value as it stands, so folding it would lose the game. */
@@ -52,7 +52,7 @@ class ReadingTest {
     void neverFoldsAValue() {
         String body = "{\"tune\": 7, \"token\": \"n0mOo\"}";
 
-        assertEquals(new Reading.Targeted(7, "n0mOo"), DECODER.read(body));
+        assertEquals(new Reading.Refused(7, "n0mOo"), DECODER.read(body));
     }
 
     @ParameterizedTest
@@ -77,8 +77,8 @@ class ReadingTest {
     @Test
     void digestsTheCodeWithTheSuffixAppended() {
         assertEquals("a9993e364706816aba3e25717850c26c9cd0d89d",
-                new Reading.Targeted(1, "abc").digest("SHA-1", ""));
+                new Reading.Refused(1, "abc").digest("SHA-1", ""));
         assertEquals("a9993e364706816aba3e25717850c26c9cd0d89d",
-                new Reading.Targeted(1, "ab").digest("SHA-1", "c"));
+                new Reading.Refused(1, "ab").digest("SHA-1", "c"));
     }
 }

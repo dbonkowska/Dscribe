@@ -312,6 +312,17 @@ class HubClientTest {
         assertFalse(written.contains(KEY), "the key must never reach disk");
     }
 
+    /** {@code URI.create} quotes what it could not parse, so the key must not be in that string yet. */
+    @Test
+    void readKeepsTheKeyOutOfWhatItThrowsOnAPathThatDoesNotParse(@TempDir Path root) {
+        RuntimeException thrown =
+                assertThrows(RuntimeException.class, () -> hub(root).read("x", "/api/x y"));
+
+        for (Throwable link = thrown; link != null; link = link.getCause()) {
+            assertFalse(String.valueOf(link.getMessage()).contains(KEY), link::getMessage);
+        }
+    }
+
     /**
      * Serves the keyed data path, handing out each body in turn and repeating the last — so a
      * second read can legitimately differ from the first.

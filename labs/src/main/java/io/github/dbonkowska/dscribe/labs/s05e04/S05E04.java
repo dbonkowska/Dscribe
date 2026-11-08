@@ -27,8 +27,8 @@ import java.util.Map;
  * only to label one hint.
  *
  * <p>Each game is {@link Game}, and a lost or abandoned one starts again, up to {@link #MAX_GAMES}.
- * Only a retry budget spent on an endpoint ends the run early, because another game would meet the
- * same outage. A label outside {@link Bearing} ends it too: that is a bug in the schema or the
+ * Two things end the run early. A retry budget spent on an endpoint does, because another game would
+ * meet the same outage. A label outside {@link Bearing} does too: that is a bug in the schema or the
  * provider, not a reply to play on from.
  *
  * <p>Nothing here names the task: the endpoints, commands, reply fields and prompt are in the bundle.
@@ -49,6 +49,7 @@ public class S05E04 {
      */
     private static final RetryPolicy RETRY = new RetryPolicy(8, Duration.ofSeconds(1), 2.0, Duration.ofSeconds(8));
 
+    /** Required by {@link RateLimitHeaders}, and never reached: this hub sends no header to cap. */
     private static final Duration MAX_WAIT = Duration.ofSeconds(30);
 
     public static void main(String[] args) {
@@ -129,11 +130,11 @@ public class S05E04 {
 
         /** Safe to retry: a repeat after the first took effect is refused, and harmlessly. */
         @Override
-        public void disarm(Reading.Targeted refusal) {
+        public void answer(Reading.Refused refusal) {
             Map<String, Object> body = Map.of(
-                    task.frequencyKey(), refusal.frequency(),
+                    task.numberKey(), refusal.number(),
                     task.hashKey(), refusal.digest(task.digestAlgorithm(), task.digestSuffix()));
-            hub.retrying(named("disarm"), attempt -> client.exchange(attempt, task.statusPath(), body));
+            hub.retrying(named("answer"), attempt -> client.exchange(attempt, task.statusPath(), body));
         }
 
         @Override

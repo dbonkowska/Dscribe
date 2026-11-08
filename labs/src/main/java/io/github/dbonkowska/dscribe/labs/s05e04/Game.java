@@ -46,7 +46,7 @@ final class Game {
         HubResponse scan();
 
         /** Returns nothing on purpose: only a later clear reading opens the gate. */
-        void disarm(Reading.Targeted refusal);
+        void answer(Reading.Refused refusal);
 
         HubResponse hint();
 
@@ -76,7 +76,7 @@ final class Game {
         this.field = field;
         this.task = task;
         this.decoder = new Reading.Decoder(
-                task.clearMarker(), task.frequencyKey(), task.codeKey(), task.confusables());
+                task.clearMarker(), task.numberKey(), task.codeKey(), task.confusables());
         this.steering = new Steering(task.rows(), task.ahead(), task.left(), task.right());
         this.flag = Pattern.compile(task.flagPattern());
     }
@@ -102,6 +102,9 @@ final class Game {
             }
 
             Bearing bearing = bearing(here);
+            if (bearing == Bearing.UNCLEAR) {
+                return new Outcome.Abandoned("the hint stayed unclear in column " + here.column());
+            }
             Optional<String> move =
                     steering.move(here.row(), here.obstacleRow(), bearing, target(here, targetRow.getAsInt()));
             if (move.isEmpty()) {
@@ -144,9 +147,9 @@ final class Game {
                 case Reading.Clear clear -> {
                     return Optional.empty();
                 }
-                case Reading.Targeted refusal -> field.disarm(refusal);
+                case Reading.Refused refusal -> field.answer(refusal);
                 case Reading.Unreadable unreadable -> {
-                    // read again up to the cap, for a reply that may have been cut short
+                    // re-reads have returned the same text so far, so the cap is expected to end this
                 }
             }
         }

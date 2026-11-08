@@ -18,19 +18,19 @@ import java.util.regex.Pattern;
  * a parser refuses: mismatched quotes and missing commas. Re-reading does not help, since the
  * garbling is stable within a column, so {@link Unreadable} is an answer and not a reason to wait.
  */
-public sealed interface Reading {
+sealed interface Reading {
 
     /** The whole reply was the clear marker. Nothing else opens the gate. */
     record Clear() implements Reading {}
 
     /** A refused step, with what clearing it takes. The code is the raw value, case kept. */
-    record Targeted(int frequency, String detectionCode) implements Reading {
+    record Refused(int number, String code) implements Reading {
 
         /** The algorithm was refused at binding if it cannot be computed, so a throw here is a bug. */
         String digest(String algorithm, String suffix) {
             try {
                 byte[] hash = MessageDigest.getInstance(algorithm)
-                        .digest((detectionCode + suffix).getBytes(StandardCharsets.UTF_8));
+                        .digest((code + suffix).getBytes(StandardCharsets.UTF_8));
                 return HexFormat.of().formatHex(hash);
             } catch (NoSuchAlgorithmException e) {
                 throw new IllegalStateException(e);
@@ -49,11 +49,11 @@ public sealed interface Reading {
      * @param clearMarker  the phrase a clear reply is, compared on letters and digits with repeats
      *                     collapsed. The whole body must match, so a phrase quoted inside some other
      *                     reply cannot pass
-     * @param frequencyKey the key the number sits under
+     * @param numberKey the key the number sits under
      * @param codeKey      the key the code sits under
      * @param confusables  character pairs a reply swaps, each folded to its first character
      */
-    record Decoder(String clearMarker, String frequencyKey, String codeKey, List<String> confusables) {
+    record Decoder(String clearMarker, String numberKey, String codeKey, List<String> confusables) {
 
         private static final String QUOTE = "[\"'`]";
 
@@ -70,12 +70,12 @@ public sealed interface Reading {
                 return new Clear();
             }
             Map<String, String> tokens = tokens(body);
-            String frequency = tokens.get(fold(frequencyKey));
+            String number = tokens.get(fold(numberKey));
             String code = tokens.get(fold(codeKey));
-            if (frequency == null || !NUMBER.matcher(frequency).matches() || code == null || code.isBlank()) {
+            if (number == null || !NUMBER.matcher(number).matches() || code == null || code.isBlank()) {
                 return new Unreadable();
             }
-            return new Targeted(Integer.parseInt(frequency), code);
+            return new Refused(Integer.parseInt(number), code);
         }
 
         private Map<String, String> tokens(String body) {

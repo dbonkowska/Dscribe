@@ -209,10 +209,12 @@ public class HubClient {
      * to keep the key off disk.
      */
     public HubResponse read(String label, String path) {
+        // parsed before the key is added: URI.create quotes whatever it cannot parse in its message
+        URI endpoint = URI.create(hubBaseUrl + path);
         String key = URLEncoder.encode(hubApiKey, StandardCharsets.UTF_8);
         try {
             HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(hubBaseUrl + path + "?key=" + key))
+                    .uri(URI.create(endpoint + "?key=" + key))
                     .GET()
                     .build();
 

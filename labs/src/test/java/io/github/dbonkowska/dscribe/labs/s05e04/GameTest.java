@@ -42,7 +42,7 @@ class GameTest {
     private static final String CLEAR = "\"all fine\"";
     private static final String REFUSED = "{\"tune\": 7, \"token\": \"abc\"}";
     private static final String GARBAGE = "?!";
-    private static final Reading.Targeted DECODED = new Reading.Targeted(7, "abc");
+    private static final Reading.Refused DECODED = new Reading.Refused(7, "abc");
 
     @Test
     void movesOnlyAfterAPositivelyClearReply() {
@@ -66,7 +66,7 @@ class GameTest {
         new Game(field, TASK).play();
 
         assertEquals(
-                List.of("start", "scan", "disarm " + DECODED, "scan", "hint", "label", "move " + LEFT),
+                List.of("start", "scan", "answer " + DECODED, "scan", "hint", "label", "move " + LEFT),
                 field.calls);
     }
 
@@ -137,9 +137,7 @@ class GameTest {
                 .scans(CLEAR)
                 .labels(Bearing.UNCLEAR, Bearing.UNCLEAR);
 
-        Game.Outcome outcome = new Game(field, TASK).play();
-
-        assertInstanceOf(Game.Outcome.Abandoned.class, outcome);
+        assertTrue(abandonReason(field).startsWith("the hint"), "the cause is the hint, not the moves");
         assertEquals(0, field.count("move"));
     }
 
@@ -163,9 +161,7 @@ class GameTest {
                 .scans(CLEAR)
                 .hintReply(reply(200, "{}"));
 
-        Game.Outcome outcome = new Game(field, TASK).play();
-
-        assertInstanceOf(Game.Outcome.Abandoned.class, outcome);
+        assertTrue(abandonReason(field).startsWith("the hint"), "the cause is the hint, not the moves");
         assertEquals(0, field.count("label"));
     }
 
@@ -188,7 +184,7 @@ class GameTest {
                 .labels(Bearing.AHEAD)
                 .moves(lost());
 
-        assertInstanceOf(Game.Outcome.Abandoned.class, new Game(field, TASK).play());
+        assertTrue(abandonReason(field).contains("lost"), "the position is complete, so only the status can say so");
         assertEquals(1, field.count("move"));
     }
 
@@ -197,9 +193,9 @@ class GameTest {
         Script field = new Script(opening(MIDDLE, 1, 1, 2))
                 .scans(CLEAR)
                 .labels(Bearing.AHEAD)
-                .moves(reply(200, "{\"ended\": true, \"at\": {\"row\": 2, \"col\": 2}}"));
+                .moves(reply(200, withPosition("\"ended\": true")));
 
-        assertInstanceOf(Game.Outcome.Abandoned.class, new Game(field, TASK).play());
+        assertTrue(abandonReason(field).contains("lost"), "the position is complete, so only the flag can say so");
         assertEquals(1, field.count("move"));
     }
 
@@ -326,8 +322,17 @@ class GameTest {
                 + obstacle + "}}");
     }
 
+    /** Refused by status alone, with a complete position, so nothing else can end the game here. */
     private static HubResponse lost() {
-        return reply(400, "{\"ended\": true}");
+        return reply(400, withPosition("\"code\": -1"));
+    }
+
+    private static String withPosition(String field) {
+        return "{" + field + ", \"at\": {\"row\": 2, \"col\": 2}, \"here\": {\"row\": 1}}";
+    }
+
+    private static String abandonReason(Script field) {
+        return assertInstanceOf(Game.Outcome.Abandoned.class, new Game(field, TASK).play()).reason();
     }
 
     /** Answers each call from its own queue and keeps the order they came in. */
@@ -394,8 +399,8 @@ class GameTest {
         }
 
         @Override
-        public void disarm(Reading.Targeted refusal) {
-            calls.add("disarm " + refusal);
+        public void answer(Reading.Refused refusal) {
+            calls.add("answer " + refusal);
         }
 
         @Override

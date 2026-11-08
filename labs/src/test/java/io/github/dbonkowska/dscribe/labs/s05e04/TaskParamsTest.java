@@ -35,7 +35,7 @@ class TaskParamsTest {
             rows=5
             columns=9
             clearMarker=all fine
-            frequencyKey=tune
+            numberKey=tune
             codeKey=token
             hashKey=proof
             digestAlgorithm=SHA-1
@@ -73,6 +73,26 @@ class TaskParamsTest {
         assertEquals(
                 new TaskParams.Replies("/at/row", "/at/col", "/end/row", "/here/row", "/ended", "/note"),
                 params.replies());
+    }
+
+    /** Appended to the hub's base URL with the key attached, so the value decides where the key goes. */
+    @ParameterizedTest
+    @ValueSource(strings = {"api/x", "@elsewhere/x", "//elsewhere/x", "https://elsewhere/x", "/a b"})
+    void refusesAPathThatIsNotPlain(String path) {
+        String status = refusal(COMPLETE.replace("statusPath=/api/x", "statusPath=" + path));
+        String hint = refusal(COMPLETE.replace("hintPath=/api/y", "hintPath=" + path));
+
+        assertTrue(status.contains("statusPath") && status.contains(path), status);
+        assertTrue(hint.contains("hintPath") && hint.contains(path), hint);
+    }
+
+    @Test
+    void refusesAMissingRepliesBlock() {
+        String props = COMPLETE.lines()
+                .filter(line -> !line.startsWith("replies."))
+                .collect(Collectors.joining(System.lineSeparator()));
+
+        assertTrue(refusal(props).contains("replies"), () -> refusal(props));
     }
 
     /** Named at startup, not at the first refused step, where a typo would cost the game in play. */
@@ -129,7 +149,7 @@ class TaskParamsTest {
 
     @ParameterizedTest
     @ValueSource(strings = {"verifyTask=x-task", "statusPath=/api/x", "hintPath=/api/y", "commandKey=op",
-            "start=begin", "ahead=on", "left=port", "right=star", "clearMarker=all fine", "frequencyKey=tune",
+            "start=begin", "ahead=on", "left=port", "right=star", "clearMarker=all fine", "numberKey=tune",
             "codeKey=token", "hashKey=proof", "digestSuffix=-x", "replies.hint=/note"})
     void refusesABlankKey(String line) {
         String key = line.substring(0, line.indexOf('='));
