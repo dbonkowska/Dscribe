@@ -56,6 +56,11 @@ record DeviceState(
         int internalMode,
         String needConfig) {
 
+    /** The device's words for its mode and condition, read off its replies and never sent. */
+    static final String STANDBY = "standby";
+    static final String ACTIVE = "active";
+    static final String STABLE = "stable";
+
     private static final JsonMapper JSON = JsonMapper.builder().build();
 
     /** Charged units over capacity. Each side one possessive class, so nothing backtracks. */
