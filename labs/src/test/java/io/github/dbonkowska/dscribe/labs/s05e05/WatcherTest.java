@@ -52,6 +52,12 @@ class WatcherTest {
         return new HubResponse(200, TestHeaders.of(Map.of()), STATE.formatted(flux, phase, extra));
     }
 
+    /** A change the operator makes: unlike phase and flux, it never moves by itself. */
+    private static HubResponse withPower(int level) {
+        return new HubResponse(200, TestHeaders.of(Map.of()),
+                STATE.formatted(0, 1, "").replace("\"PWR\": 0", "\"PWR\": " + level));
+    }
+
     /** A clock that moves only when the watcher sleeps. */
     private static final class FakeClock extends Clock {
         private Instant now = Instant.parse("3000-01-01T00:00:00Z");
@@ -124,12 +130,13 @@ class WatcherTest {
 
     @Test
     void endsIdleAfterNoChangeForTheLimitWithTheLastState() {
-        Script script = new Script(state(0, 1), state(20, 1), state(20, 1), state(20, 1));
+        HubResponse set = withPower(7);
+        Script script = new Script(state(0, 1), set, set, set);
 
         Watcher.Outcome outcome = watch(script);
 
         Watcher.Outcome.Idle idle = assertInstanceOf(Watcher.Outcome.Idle.class, outcome);
-        assertEquals(20, idle.last().fluxDensity());
+        assertEquals(7, idle.last().pwr());
         assertEquals(4, script.polls);
     }
 
@@ -146,6 +153,17 @@ class WatcherTest {
         assertEquals(3, events.size(), events::toString);
         assertInstanceOf(Watcher.Outcome.Idle.class, outcome);
         assertEquals(3, script.polls);
+    }
+
+    /** Flux follows the phase, so it moves by itself too: a device left on would never go idle. */
+    @Test
+    void countsFluxFollowingThePhaseAsNoActivity() {
+        Script script = new Script(state(100, 2), state(80, 3), state(80, 4));
+
+        Watcher.Outcome outcome = watch(script);
+
+        assertEquals(3, events.size(), events::toString);
+        assertInstanceOf(Watcher.Outcome.Idle.class, outcome);
     }
 
     /** Nothing says which reply carries the flag, so an unchanged one is searched too. */

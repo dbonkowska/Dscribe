@@ -12,6 +12,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 import java.util.function.Supplier;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -23,17 +24,19 @@ import java.util.regex.Pattern;
  * <p>Knows nothing about stages: it reports what changed and leaves deciding to the listener. Every
  * reply is searched for the flag before it is read as a state, since nothing says which reply carries
  * it. A reply that is not a state ends the watch, quoted. Retrying a failed call is the hub client's
- * job, below this. The watch ends idle once nothing but the phase has changed for the idle limit.
+ * job, below this. The watch ends idle once nothing but the phase and the flux that follows it has
+ * changed for the idle limit.
  */
 final class Watcher {
 
     private static final RecordComponent[] FIELDS = DeviceState.class.getRecordComponents();
 
     /**
-     * The field that moves by itself. A change in it is reported, since the cue depends on it, but it
-     * does not count as activity: counted, a device left on would never go idle.
+     * The fields that move by themselves: the phase rotates, and flux drops below full whenever the
+     * phase is wrong. A change in them is reported, since the cue depends on both, but it does not
+     * count as activity: counted, a device left on would never go idle.
      */
-    private static final String PHASE = "internalMode";
+    private static final Set<String> SELF_MOVING = Set.of("internalMode", "fluxDensity");
 
     /** What the listener wants after an event. */
     enum Verdict { WATCH, STOP }
@@ -99,7 +102,7 @@ final class Watcher {
             }
             List<String> changed = diff(last, state);
             last = state;
-            if (changed.stream().anyMatch(field -> !field.equals(PHASE))) {
+            if (changed.stream().anyMatch(field -> !SELF_MOVING.contains(field))) {
                 changedAt = clock.instant();
             }
             if (!changed.isEmpty() && listener.on(new Event.Changed(state, changed)) == Verdict.STOP) {

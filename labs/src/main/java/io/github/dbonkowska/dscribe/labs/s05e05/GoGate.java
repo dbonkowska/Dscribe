@@ -5,9 +5,12 @@ import java.util.List;
 /**
  * Whether the operator may start the jump now. Pure, and the only place the cue is decided.
  *
- * <p>It opens only on every condition holding at once: full flux, a stable condition, active mode,
- * some charge left, and the device in the target year's phase. The phase rotates by itself every few
- * seconds, so it is checked last: waiting for it is worth saying only once nothing else is in the way.
+ * <p>It opens only on every condition holding at once: a stable condition, active mode, some charge
+ * left, the device in the target year's phase, and full flux. The phase rotates by itself every few
+ * seconds, so it is checked after what the operator sets: waiting for it is worth saying only once
+ * nothing else is in the way. Flux comes after the phase, because the device reads it below full
+ * whenever the phase is wrong (first seen in a real run), and reported as flux, a wrong phase would
+ * hide which phase to wait for.
  *
  * @param phaseBounds the highest year each phase but the last serves, strictly increasing
  */
@@ -17,7 +20,7 @@ record GoGate(List<Integer> phaseBounds) {
     static final int FULL_FLUX = 100;
 
     /** What keeps the gate shut, in the order it is checked. */
-    enum Reason { FLUX, CONDITION, MODE, BATTERY, PHASE }
+    enum Reason { CONDITION, MODE, BATTERY, PHASE, FLUX }
 
     sealed interface Result {}
 
@@ -43,9 +46,7 @@ record GoGate(List<Integer> phaseBounds) {
         int want = phaseOf(targetYear);
         int now = state.internalMode();
         Reason reason;
-        if (state.fluxDensity() != FULL_FLUX) {
-            reason = Reason.FLUX;
-        } else if (!DeviceState.STABLE.equals(state.condition())) {
+        if (!DeviceState.STABLE.equals(state.condition())) {
             reason = Reason.CONDITION;
         } else if (!DeviceState.ACTIVE.equals(state.mode())) {
             reason = Reason.MODE;
@@ -53,6 +54,8 @@ record GoGate(List<Integer> phaseBounds) {
             reason = Reason.BATTERY;
         } else if (now != want) {
             reason = Reason.PHASE;
+        } else if (state.fluxDensity() != FULL_FLUX) {
+            reason = Reason.FLUX;
         } else {
             return new Open();
         }

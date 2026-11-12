@@ -66,6 +66,15 @@ class GoGateTest {
         assertEquals(new GoGate.Shut(Reason.PHASE, 2, 3), shut);
     }
 
+    /**
+     * Out of phase the device reads flux below full, whatever else is set, so a wrong phase is the
+     * reason given: reported as flux, the operator would not learn which phase to wait for.
+     */
+    @Test
+    void reportsTheWrongPhaseRatherThanTheFluxItLowers() {
+        assertEquals(new GoGate.Shut(Reason.PHASE, 2, 3), shut(ready().phase(3).flux(80)));
+    }
+
     /** Waiting for a phase is only worth saying once nothing else is in the way. */
     @Test
     void reportsAnotherReasonBeforeThePhase() {
