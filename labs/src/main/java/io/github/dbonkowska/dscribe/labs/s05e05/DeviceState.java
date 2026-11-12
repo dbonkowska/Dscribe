@@ -117,14 +117,6 @@ record DeviceState(
                 + body.path("code").asString("?") + ", " + body.path("message").asString("no message") + ".");
     }
 
-    /** The target, only once day, month and year are all set: a partial date is no target. */
-    Optional<LocalDate> date() {
-        if (day == null || month == null || year == null) {
-            return Optional.empty();
-        }
-        return Optional.of(LocalDate.of(year, month, day));
-    }
-
     Optional<String> hint() {
         return Optional.ofNullable(needConfig);
     }

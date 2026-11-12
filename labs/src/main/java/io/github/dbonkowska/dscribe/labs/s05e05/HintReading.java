@@ -61,6 +61,9 @@ record HintReading(int base, int delta, Direction direction) {
 
     /** From the model's reply, checked again here since a provider can ignore a schema. */
     static HintReading parse(Map<?, ?> reply) {
+        if (reply == null) {
+            throw new IllegalStateException("The model gave no reply: its answer was the JSON literal null.");
+        }
         String label = String.valueOf(reply.get(DIRECTION));
         Direction direction = Arrays.stream(Direction.values())
                 .filter(candidate -> candidate.label().equals(label))

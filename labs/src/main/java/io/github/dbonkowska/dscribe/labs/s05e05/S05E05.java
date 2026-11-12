@@ -16,6 +16,7 @@ import io.github.dbonkowska.dscribe.llm.LlmClient;
 import io.github.dbonkowska.dscribe.llm.ResponseFormat;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import tools.jackson.core.JacksonException;
 
 import java.time.Clock;
 import java.time.Duration;
@@ -35,10 +36,10 @@ import java.util.stream.Collectors;
  * is checked against the device's own state rather than their word. The model is called only to take a
  * free-text hint apart, and code does the arithmetic.
  *
- * <p>The result shows in the browser, from the page's own call, so the run cannot see it arrive. It
- * ends on reaching the meeting date, on a stop, on going idle, or on Ctrl-C once the result shows,
- * and the transcript's outcome says which. After the final cue it keeps cueing: a missed phase comes
- * round again.
+ * <p>The page shows the flag from its own call, and once the tunnel is open a {@code getConfig} reply
+ * carries it too (seen in the second real run), so the watcher's flag match catches it. The run ends
+ * on reaching the meeting date, on a stop, on going idle, or on Ctrl-C, and the transcript's outcome
+ * says which. After the final cue it keeps cueing: a missed phase comes round again.
  *
  * <p>Nothing here names the task: actions, sent names, weights, dates and texts are in the bundle.
  */
@@ -154,7 +155,7 @@ public class S05E05 {
      *
      * <p>It does not end on the final cue, or on any change after it. The first real run did, and
      * ended on the flux drop of the next phase rotation, three seconds after the cue, taking away the
-     * next window to click in. The result shows in the browser, so once it does, Ctrl-C ends the run.
+     * next window to click in. Arriving at the meeting date ends it; Ctrl-C ends it otherwise.
      */
     private static final class Run implements Watcher.Listener {
         private final Assistant assistant;
@@ -198,13 +199,13 @@ public class S05E05 {
             return how + " " + summary();
         }
 
-        /** What the run has seen of the result, which shows in the browser rather than here. */
+        /** What the run has seen of the result. The page shows it too, so its absence here is no failure. */
         String summary() {
             if (!flags.isEmpty()) {
                 return "Flag seen in a reply: " + String.join(", ", flags) + ".";
             }
             return console.finalCueGiven()
-                    ? "The final cue was given; no reply carried the flag, which shows in the browser."
+                    ? "The final cue was given, but no reply seen here carried the flag. Check the browser."
                     : "The final cue was never given.";
         }
     }
@@ -292,16 +293,19 @@ public class S05E05 {
             return hub.send("configure " + name + "=" + value, answer);
         }
 
-        /** A reply the model could not give in shape is an unclear reading: a failed attempt, not a crash. */
+        /**
+         * A reply the model could not give in shape is an unclear reading: a failed attempt, not a
+         * crash. That covers a reply that is not JSON, which the client throws on while reading it,
+         * as well as one that is JSON but not the schema.
+         */
         @Override
         public HintReading label(String hint) {
-            Map<?, ?> reply = reading.sendStructured(List.of(
-                    new Message(Role.system, system),
-                    new Message(Role.user, hint)), format, Map.class);
             HintReading parsed;
             try {
-                parsed = HintReading.parse(reply);
-            } catch (IllegalStateException e) {
+                parsed = HintReading.parse(reading.sendStructured(List.of(
+                        new Message(Role.system, system),
+                        new Message(Role.user, hint)), format, Map.class));
+            } catch (IllegalStateException | JacksonException e) {
                 transcript.note("hint refused", "> " + hint + "\n\n" + e.getMessage());
                 return new HintReading(0, 0, HintReading.Direction.UNCLEAR);
             }

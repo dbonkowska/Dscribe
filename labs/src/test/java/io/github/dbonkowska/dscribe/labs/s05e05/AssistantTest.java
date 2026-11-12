@@ -328,7 +328,8 @@ class AssistantTest {
         Watcher.Verdict verdict = feed(assistant, States.at(TODAY).battery(1).active());
 
         assertEquals(Watcher.Verdict.STOP, verdict);
-        assertInstanceOf(Assistant.Result.Stop.class, assistant.result().orElseThrow());
+        Assistant.Result.Stop stop = assertInstanceOf(Assistant.Result.Stop.class, assistant.result().orElseThrow());
+        assertTrue(stop.reason().contains("second trip") && stop.reason().contains("1/3"), stop.reason());
     }
 
     @Test

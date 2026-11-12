@@ -8,6 +8,8 @@ import org.junit.jupiter.params.provider.ValueSource;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.Arrays;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
@@ -63,7 +65,7 @@ class DeviceStateTest {
         DeviceState state = DeviceState.of(ok(FULL));
 
         assertEquals(LocalDate.of(3001, 4, 5), state.currentDate());
-        assertEquals(Optional.of(LocalDate.of(3002, 7, 6)), state.date());
+        assertEquals(List.of(6, 7, 3002), List.of(state.day(), state.month(), state.year()));
         assertEquals(new BigDecimal("0.42"), state.syncRatio());
         assertEquals(123, state.stabilization());
         assertEquals("steady-ish", state.condition());
@@ -77,14 +79,14 @@ class DeviceStateTest {
         assertEquals(Optional.of("some free text"), state.hint());
     }
 
-    /** A partly set date is not a target: the ratio and the hint are both taken against a whole one. */
+    /** An unset part of the target date reads as unset, not as a refusal: the device starts that way. */
     @ParameterizedTest
     @ValueSource(strings = {"\"day\": 6", "\"month\": 7", "\"year\": 3002"})
-    void readsAPartlySetDateAsNoTarget(String field) {
+    void readsAnUnsetPartOfTheDateAsNull(String field) {
         String name = field.substring(0, field.indexOf(':'));
         DeviceState state = DeviceState.of(ok(FULL.replace(field, name + ": null")));
 
-        assertEquals(Optional.empty(), state.date());
+        assertTrue(Arrays.asList(state.day(), state.month(), state.year()).contains(null));
     }
 
     @Test

@@ -101,6 +101,14 @@ class HintReadingTest {
         assertTrue(fraction.contains("base") && fraction.contains("12.5"), fraction);
     }
 
+    /** A model can answer the JSON literal {@code null}, which reads as no reply at all. */
+    @Test
+    void refusesNoReply() {
+        String message = assertThrows(IllegalStateException.class, () -> HintReading.parse(null)).getMessage();
+
+        assertTrue(message.contains("no reply"), message);
+    }
+
     @Test
     void refusesAMissingPart() {
         String message = assertThrows(IllegalStateException.class,

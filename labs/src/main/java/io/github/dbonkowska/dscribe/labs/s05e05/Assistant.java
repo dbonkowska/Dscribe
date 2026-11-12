@@ -201,13 +201,15 @@ final class Assistant implements Watcher.Listener {
             if (state.stabilization() != tried.pending) {
                 return;
             }
+            tried.readings.set(tried.readings.size() - 1, tried.pending + ", which the device did not take as stable");
             tried.pending = null;
         }
         while (tried.readings.size() < MAX_READINGS) {
             HintReading.Value value = device.label(hint.get()).value(stabilizationMin, stabilizationMax);
             switch (value) {
                 case HintReading.Value.Of of -> {
-                    tried.readings.add(of.value() + ", which the device did not take as stable");
+                    // the verdict is added once a state shows it: until then, it is only a value sent
+                    tried.readings.add(String.valueOf(of.value()));
                     tried.pending = of.value();
                     send(NextSteps.Param.STABILIZATION, of.value());
                     return;

@@ -14,6 +14,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Set;
 import java.util.function.Supplier;
+import java.util.stream.Collectors;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -37,6 +38,16 @@ final class Watcher {
      * count as activity: counted, a device left on would never go idle.
      */
     private static final Set<String> SELF_MOVING = Set.of("internalMode", "fluxDensity");
+
+    // A rename in DeviceState would otherwise count the phase as activity again, silently, and the
+    // run would never go idle. Failing at class load puts it in front of every test.
+    static {
+        Set<String> names = Arrays.stream(FIELDS).map(RecordComponent::getName).collect(Collectors.toSet());
+        if (!names.containsAll(SELF_MOVING)) {
+            throw new IllegalStateException(
+                    "Watcher.SELF_MOVING names " + SELF_MOVING + ", but DeviceState's fields are " + names + ".");
+        }
+    }
 
     /** What the listener wants after an event. */
     enum Verdict { WATCH, STOP }
