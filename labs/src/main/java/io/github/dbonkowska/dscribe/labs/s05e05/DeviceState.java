@@ -71,13 +71,10 @@ record DeviceState(
      * message, and anything unreadable is quoted whole.
      */
     static DeviceState of(HubResponse response) {
+        refusal(response).ifPresent(reason -> {
+            throw new IllegalStateException(reason);
+        });
         JsonNode body = parse(response.body());
-        if (response.status() / 100 != 2) {
-            throw new IllegalStateException(
-                    "The device refused the call with HTTP " + response.status() + ": code "
-                            + body.path("code").asString("?") + ", " + body.path("message").asString("no message")
-                            + ".");
-        }
         JsonNode config = body.get("config");
         if (config == null || !config.isObject()) {
             throw new IllegalStateException(
@@ -105,6 +102,19 @@ record DeviceState(
                 text(config, "mode"),
                 integer(config, "internalMode"),
                 hint == null || hint.isNull() ? null : hint.stringValue());
+    }
+
+    /**
+     * Why the device refused a call, quoting its code and message, or empty when it did not. A body
+     * that is not JSON is quoted whole.
+     */
+    static Optional<String> refusal(HubResponse response) {
+        if (response.status() / 100 == 2) {
+            return Optional.empty();
+        }
+        JsonNode body = parse(response.body());
+        return Optional.of("The device refused the call with HTTP " + response.status() + ": code "
+                + body.path("code").asString("?") + ", " + body.path("message").asString("no message") + ".");
     }
 
     /** The target, only once day, month and year are all set: a partial date is no target. */

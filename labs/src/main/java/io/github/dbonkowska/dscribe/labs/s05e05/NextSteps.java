@@ -27,8 +27,11 @@ import java.util.Objects;
  */
 record NextSteps(List<NextSteps.Write> writes, boolean needsStabilization, List<NextSteps.Instruction> instructions) {
 
-    /** The API values this works out. Each is sent under a name the lesson binds. */
-    enum Param { DAY, MONTH, YEAR, SYNC_RATIO }
+    /**
+     * The values the API sets, each sent under a name the lesson binds. This works out all but
+     * {@link #STABILIZATION}, which needs the hint and is set by the caller.
+     */
+    enum Param { DAY, MONTH, YEAR, SYNC_RATIO, STABILIZATION }
 
     /** Which direction control: the one for jumps back, or the one for jumps ahead. */
     enum Side { PAST, FUTURE }

@@ -23,11 +23,17 @@ import java.util.regex.Pattern;
  * <p>Knows nothing about stages: it reports what changed and leaves deciding to the listener. Every
  * reply is searched for the flag before it is read as a state, since nothing says which reply carries
  * it. A reply that is not a state ends the watch, quoted. Retrying a failed call is the hub client's
- * job, below this.
+ * job, below this. The watch ends idle once nothing but the phase has changed for the idle limit.
  */
 final class Watcher {
 
     private static final RecordComponent[] FIELDS = DeviceState.class.getRecordComponents();
+
+    /**
+     * The field that moves by itself. A change in it is reported, since the cue depends on it, but it
+     * does not count as activity: counted, a device left on would never go idle.
+     */
+    private static final String PHASE = "internalMode";
 
     /** What the listener wants after an event. */
     enum Verdict { WATCH, STOP }
@@ -93,12 +99,13 @@ final class Watcher {
             }
             List<String> changed = diff(last, state);
             last = state;
-            if (!changed.isEmpty()) {
+            if (changed.stream().anyMatch(field -> !field.equals(PHASE))) {
                 changedAt = clock.instant();
-                if (listener.on(new Event.Changed(state, changed)) == Verdict.STOP) {
-                    return new Outcome.Stopped(last);
-                }
-            } else if (Duration.between(changedAt, clock.instant()).compareTo(idleLimit) >= 0) {
+            }
+            if (!changed.isEmpty() && listener.on(new Event.Changed(state, changed)) == Verdict.STOP) {
+                return new Outcome.Stopped(last);
+            }
+            if (Duration.between(changedAt, clock.instant()).compareTo(idleLimit) >= 0) {
                 return new Outcome.Idle(last);
             }
             sleeper.await(interval);

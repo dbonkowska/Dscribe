@@ -133,6 +133,21 @@ class WatcherTest {
         assertEquals(4, script.polls);
     }
 
+    /**
+     * The phase rotates by itself, so a change in it alone is reported but is not activity: counted as
+     * one, a device left on would never go idle.
+     */
+    @Test
+    void reportsAPhaseChangeButStillEndsIdle() {
+        Script script = new Script(state(0, 1), state(0, 2), state(0, 3));
+
+        Watcher.Outcome outcome = watch(script);
+
+        assertEquals(3, events.size(), events::toString);
+        assertInstanceOf(Watcher.Outcome.Idle.class, outcome);
+        assertEquals(3, script.polls);
+    }
+
     /** Nothing says which reply carries the flag, so an unchanged one is searched too. */
     @Test
     void reportsAFlagEvenInAnUnchangedState() {
