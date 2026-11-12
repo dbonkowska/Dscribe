@@ -90,17 +90,37 @@ class AssistantTest {
 
     private static final class Console implements Assistant.Operator {
         final List<List<Instruction>> said = new ArrayList<>();
+        final List<Assistant.Cue> cues = new ArrayList<>();
+        final List<String> notes = new ArrayList<>();
 
         @Override
         public void say(List<Instruction> instructions) {
             said.add(instructions);
         }
+
+        @Override
+        public void cue(Assistant.Cue cue) {
+            cues.add(cue);
+        }
+
+        @Override
+        public void note(String note) {
+            notes.add(note);
+        }
     }
+
+    /** The meeting year is in phase 1, today's in phase 2, the fetch year in phase 3. */
+    private static final GoGate GATE = new GoGate(List.of(2950, 3050));
 
     private final Console operator = new Console();
 
     private Assistant assistant(Script device) {
-        return new Assistant(device, operator, ROUTE, LEVELS, RATIO, 0, 1000, () -> TODAY);
+        return new Assistant(device, operator, ROUTE, LEVELS, RATIO, GATE, 0, 1000, () -> TODAY);
+    }
+
+    /** On the way to the fetch date with everything set; only the phase is left to the device. */
+    private static States readyForFetch(int phase) {
+        return towardFetch().stable().ptb(true).pwr(6).active().flux(100).phase(phase);
     }
 
     private static Watcher.Verdict feed(Assistant assistant, States states) {
@@ -208,5 +228,128 @@ class AssistantTest {
         assertEquals(List.of("configure DAY 6"), device.calls);
         Assistant.Result.Stop stop = assertInstanceOf(Assistant.Result.Stop.class, assistant.result().orElseThrow());
         assertTrue(stop.reason().contains("-42") && stop.reason().contains("Not that value."), stop.reason());
+    }
+
+    /** States arrive on every phase step, so the same open steps would otherwise scroll past twice a second. */
+    @Test
+    void printsTheSameInstructionsOnceAndAChangedSetAgain() {
+        Assistant assistant = assistant(new Script());
+
+        feed(assistant, towardFetch().stable().phase(1));
+        feed(assistant, towardFetch().stable().phase(2));
+        feed(assistant, towardFetch().stable().ptb(true).phase(3));
+
+        assertEquals(List.of(
+                        List.of(new Instruction.Switch(NextSteps.Side.FUTURE, true), new Instruction.Level(6)),
+                        List.of(new Instruction.Level(6))),
+                operator.said);
+    }
+
+    /** A step that comes back after clearing, a wrong click undone, is said again. */
+    @Test
+    void printsAStepAgainWhenItComesBack() {
+        Assistant assistant = assistant(new Script());
+
+        feed(assistant, towardFetch().stable().ptb(true));
+        feed(assistant, towardFetch().stable().ptb(true).pwr(6));
+        feed(assistant, towardFetch().stable().ptb(true));
+
+        assertEquals(List.of(
+                        List.of(new Instruction.Level(6)),
+                        List.of(new Instruction.Active()),
+                        List.of(new Instruction.Level(6))),
+                operator.said);
+    }
+
+    @Test
+    void cuesOnceWhenTheGateOpensAndWithdrawsItWhenThePhaseMoves() {
+        Assistant assistant = assistant(new Script());
+
+        feed(assistant, readyForFetch(3));
+        feed(assistant, readyForFetch(3).flux(100));
+        feed(assistant, readyForFetch(4));
+        feed(assistant, readyForFetch(3));
+
+        assertEquals(List.of(new Assistant.Cue.Go(false), new Assistant.Cue.Wait(3, 4), new Assistant.Cue.Go(false)),
+                operator.cues);
+    }
+
+    @Test
+    void saysWhichPhaseItWaitsForBeforeTheGateHasOpened() {
+        Assistant assistant = assistant(new Script());
+
+        feed(assistant, readyForFetch(1));
+
+        assertEquals(List.of(new Assistant.Cue.Wait(3, 1)), operator.cues);
+    }
+
+    /** The last cue is the one after which the result shows in the browser, not here. */
+    @Test
+    void marksTheTunnelCueAsTheLast() {
+        Assistant assistant = assistant(new Script());
+
+        feed(assistant, States.at(TODAY).battery(2).target(MEETING).syncRatio("0.08").stable()
+                .pta(true).ptb(true).pwr(4).active().flux(100).phase(1));
+
+        assertEquals(List.of(new Assistant.Cue.Go(true)), operator.cues);
+    }
+
+    @Test
+    void notesAStageDoneAndStartsTheNext() {
+        Assistant assistant = assistant(new Script());
+
+        feed(assistant, readyForFetch(3));
+        feed(assistant, States.at(FETCH).battery(3).target(FETCH).syncRatio("0.06").stable().ptb(true).pwr(6)
+                .active().flux(100).phase(3));
+
+        assertEquals(1, operator.notes.size(), operator.notes::toString);
+        assertTrue(operator.notes.getFirst().contains(FETCH.toString()), operator.notes::toString);
+        assertEquals(List.of(new Instruction.Standby()), operator.said.getLast());
+    }
+
+    /** No second trip on a charge that could run out on the way back. */
+    @Test
+    void stopsWhenTheReturnStartsWithNoCharge() {
+        Assistant assistant = assistant(new Script());
+
+        Watcher.Verdict verdict = feed(assistant, States.at(FETCH).battery(0));
+
+        assertEquals(Watcher.Verdict.STOP, verdict);
+        Assistant.Result.Stop stop = assertInstanceOf(Assistant.Result.Stop.class, assistant.result().orElseThrow());
+        assertTrue(stop.reason().contains("0/3"), stop.reason());
+    }
+
+    @Test
+    void stopsRatherThanFetchingASecondTime() {
+        Script device = new Script();
+        Assistant assistant = assistant(device);
+
+        feed(assistant, States.at(FETCH).battery(1).active());
+        Watcher.Verdict verdict = feed(assistant, States.at(TODAY).battery(1).active());
+
+        assertEquals(Watcher.Verdict.STOP, verdict);
+        assertInstanceOf(Assistant.Result.Stop.class, assistant.result().orElseThrow());
+    }
+
+    @Test
+    void isDoneAtTheMeetingDate() {
+        Assistant assistant = assistant(new Script());
+
+        Watcher.Verdict verdict = feed(assistant, States.at(MEETING).battery(1));
+
+        assertEquals(Watcher.Verdict.STOP, verdict);
+        assertInstanceOf(Assistant.Result.Done.class, assistant.result().orElseThrow());
+    }
+
+    /** Nothing is stored, so a run started mid-route acts on where the device is. */
+    @Test
+    void picksUpMidRouteWhenStartedFresh() {
+        Script device = new Script();
+
+        feed(assistant(device), States.at(FETCH).battery(2));
+
+        assertEquals(List.of(
+                "configure DAY 2", "configure MONTH 1", "configure YEAR 3000", "configure SYNC_RATIO 0.02"),
+                device.calls);
     }
 }

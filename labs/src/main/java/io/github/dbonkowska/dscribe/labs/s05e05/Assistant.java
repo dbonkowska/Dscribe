@@ -7,17 +7,22 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.function.Supplier;
 
 /**
- * Reacts to each state the watcher reports: sets what the API allows, and tells the operator what
- * is left.
+ * Reacts to each state the watcher reports: sets what the API allows, tells the operator what is
+ * left, and gives the cue once the gate opens.
  *
- * <p>The stage is derived again from every state, never stored, so a restarted run carries on. The
- * one thing kept is how stabilization went for each target: a reading the device rejects is followed
- * by one more of the same hint, and a second rejection stops the run rather than guessing a third
- * time.
+ * <p>The stage is derived again from every state, never stored, so a restarted run carries on. What
+ * is kept is what a single state cannot show:
+ * <ul>
+ *   <li>how stabilization went for each target, so a rejected reading gets one more try and no third
+ *   <li>whether the fetch stage has been done in this process, so a charge still short after it stops
+ *       the run rather than starting a second trip
+ *   <li>what was last said, so the same thing is not printed on every phase step
+ * </ul>
  */
 final class Assistant implements Watcher.Listener {
 
@@ -34,9 +39,25 @@ final class Assistant implements Watcher.Listener {
         HintReading label(String hint);
     }
 
-    /** Whoever does the manual side. */
+    /** Whoever does the manual side. Called only when what it is told changes. */
     interface Operator {
+
+        /** What is still to change, in order. Rendered with the lesson's texts. */
         void say(List<NextSteps.Instruction> instructions);
+
+        /** Start now, or wait for the phase. */
+        void cue(Cue cue);
+
+        /** The run's own word on where it is, such as a stage done. */
+        void note(String note);
+    }
+
+    sealed interface Cue {
+        /** Everything holds: start the jump. {@code last} for the stage after which the run is done. */
+        record Go(boolean last) implements Cue {}
+
+        /** Everything is set but the phase, which moves by itself. */
+        record Wait(int wantPhase, int nowPhase) implements Cue {}
     }
 
     sealed interface Result {
@@ -56,19 +77,25 @@ final class Assistant implements Watcher.Listener {
     private final Stage.Route route;
     private final LevelTable levels;
     private final SyncRatio ratio;
+    private final GoGate gate;
     private final int stabilizationMin;
     private final int stabilizationMax;
     private final Supplier<LocalDate> today;
     private final Map<LocalDate, Attempts> attempts = new HashMap<>();
+    private boolean fetched;
+    private LocalDate lastTarget;
+    private List<NextSteps.Instruction> lastSaid = List.of();
+    private Object lastCue;
     private Result result;
 
     Assistant(Device device, Operator operator, Stage.Route route, LevelTable levels, SyncRatio ratio,
-            int stabilizationMin, int stabilizationMax, Supplier<LocalDate> today) {
+            GoGate gate, int stabilizationMin, int stabilizationMax, Supplier<LocalDate> today) {
         this.device = device;
         this.operator = operator;
         this.route = route;
         this.levels = levels;
         this.ratio = ratio;
+        this.gate = gate;
         this.stabilizationMin = stabilizationMin;
         this.stabilizationMax = stabilizationMax;
         this.today = today;
@@ -88,10 +115,34 @@ final class Assistant implements Watcher.Listener {
     }
 
     private void react(DeviceState state) {
-        Stage stage = route.of(state, today.get());
-        if (!(stage instanceof Stage.Go go)) {
+        switch (route.of(state, today.get())) {
+            case Stage.Stop stop -> result = new Result.Stop(stop.reason());
+            case Stage.Arrived arrived -> result = new Result.Done();
+            case Stage.Go go -> work(state, go);
+        }
+    }
+
+    private void work(DeviceState state, Stage.Go go) {
+        if (lastTarget != null && !lastTarget.equals(go.target()) && state.currentDate().equals(lastTarget)) {
+            operator.note("Stage done: the device is at " + lastTarget + ". Next, " + go.kind() + " to "
+                    + go.target() + ".");
+        }
+        lastTarget = go.target();
+        if (go.kind() == Stage.Kind.RETURN) {
+            fetched = true;
+            if (state.batteryCharged() < 1) {
+                result = new Result.Stop("The way back starts at " + state.batteryCharged() + "/"
+                        + state.batteryCapacity() + " charge, so a jump could leave the device stranded.");
+                return;
+            }
+        }
+        if (go.kind() == Stage.Kind.FETCH && fetched) {
+            result = new Result.Stop("Back from the fetch stage with " + state.batteryCharged() + "/"
+                    + state.batteryCapacity() + " charge, still short of the tunnel. A second trip is not"
+                    + " taken on a charge that could run out.");
             return;
         }
+
         NextSteps steps = NextSteps.of(state, go, levels.require(go.target().getYear()), ratio);
         for (NextSteps.Write write : steps.writes()) {
             if (!send(write.param(), write.value())) {
@@ -102,8 +153,36 @@ final class Assistant implements Watcher.Listener {
             stabilize(state, go.target());
             return;
         }
-        if (!steps.instructions().isEmpty()) {
-            operator.say(steps.instructions());
+        if (!steps.instructions().equals(lastSaid)) {
+            lastSaid = steps.instructions();
+            if (!lastSaid.isEmpty()) {
+                operator.say(lastSaid);
+            }
+        }
+        if (steps.instructions().isEmpty() && steps.writes().isEmpty()) {
+            cue(state, go);
+        } else {
+            lastCue = null;
+        }
+    }
+
+    /** The cue when the gate opens, the wait while only the phase is wrong, each said once. */
+    private void cue(DeviceState state, Stage.Go go) {
+        Object now = switch (gate.check(state, go.target().getYear())) {
+            case GoGate.Open open -> new Cue.Go(go.kind() == Stage.Kind.TUNNEL);
+            case GoGate.Shut shut when shut.reason() == GoGate.Reason.PHASE ->
+                    new Cue.Wait(shut.wantPhase(), shut.nowPhase());
+            case GoGate.Shut shut -> shut.reason();
+        };
+        if (Objects.equals(now, lastCue)) {
+            return;
+        }
+        lastCue = now;
+        switch (now) {
+            case Cue cue -> operator.cue(cue);
+            case GoGate.Reason reason -> operator.note(
+                    "Everything is set, but the device does not allow a jump yet: " + reason + " does not hold.");
+            default -> throw new IllegalStateException("Unexpected cue " + now);
         }
     }
 
